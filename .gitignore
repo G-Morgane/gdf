@@ -1,0 +1,4 @@
+guild.json
+*.log
+.vercel/
+.claude/

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guilde – GuildScribe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Écran de connexion -->
+  <section id="login" class="screen hidden">
+    <div class="login-card">
+      <div class="crest">⚔</div>
+      <h1>Registre de guilde</h1>
+      <p class="muted">Réservé aux membres du serveur Discord de la guilde.</p>
+      <button id="btn-login" class="btn-discord">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.6 5.2A17 17 0 0 0 15.3 4l-.5 1.1a15.8 15.8 0 0 0-5.6 0L8.7 4a17 17 0 0 0-4.3 1.2C1.7 9.3 1 13.2 1.3 17.1a17.2 17.2 0 0 0 5.3 2.6l1.1-1.7a11 11 0 0 1-1.8-.9l.4-.3a12.3 12.3 0 0 0 11.4 0l.4.3c-.6.4-1.2.7-1.8.9l1.1 1.7a17.1 17.1 0 0 0 5.3-2.6c.4-4.6-.7-8.5-3.1-11.9ZM8.7 14.7c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1Zm6.6 0c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 1.9 1 1.9 2.1-.8 2.1-1.9 2.1Z"/></svg>
+        Se connecter avec Discord
+      </button>
+      <p id="login-error" class="error hidden"></p>
+    </div>
+  </section>
+
+  <!-- Application -->
+  <section id="app" class="screen hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="crest small">⚔</span>
+        <div>
+          <h1 id="guild-name">Guilde</h1>
+          <div id="guild-sub" class="muted"></div>
+        </div>
+      </div>
+      <div class="user">
+        <select id="guild-picker" class="hidden" aria-label="Guilde"></select>
+        <span id="user-name" class="muted"></span>
+        <span id="user-role" class="badge"></span>
+        <button id="btn-logout" class="btn-ghost">Déconnexion</button>
+      </div>
+    </header>
+
+    <div id="motd" class="motd hidden"></div>
+
+    <section class="stats" id="stats"></section>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="roster">Roster</button>
+      <button class="tab" data-tab="profs">Métiers</button>
+      <button class="tab" data-tab="inactive">Inactifs</button>
+    </nav>
+
+    <!-- Roster -->
+    <section id="tab-roster" class="panel">
+      <div class="filters">
+        <input id="f-search" type="search" placeholder="Rechercher un nom, une note…">
+        <select id="f-class"><option value="">Toutes les classes</option></select>
+        <select id="f-rank"><option value="">Tous les rangs</option></select>
+        <select id="f-prof"><option value="">Tous les métiers</option></select>
+        <label class="check"><input id="f-online" type="checkbox"> En ligne</label>
+        <label class="check"><input id="f-addon" type="checkbox"> Avec l'add-on</label>
+        <label class="check"><input id="f-left" type="checkbox"> Anciens membres</label>
+      </div>
+      <div class="table-wrap">
+        <table class="roster">
+          <thead>
+            <tr>
+              <th data-sort="name">Nom</th>
+              <th data-sort="level" class="num">Niv.</th>
+              <th data-sort="class">Classe</th>
+              <th data-sort="rank_index">Rang</th>
+              <th>Métiers</th>
+              <th data-sort="ilvl" class="num">iLvl</th>
+              <th data-sort="zone">Zone</th>
+              <th data-sort="last_online">Vu</th>
+            </tr>
+          </thead>
+          <tbody id="roster-body"></tbody>
+        </table>
+      </div>
+      <p id="roster-count" class="muted small"></p>
+    </section>
+
+    <!-- Métiers -->
+    <section id="tab-profs" class="panel hidden">
+      <div id="profs-grid" class="profs-grid"></div>
+    </section>
+
+    <!-- Inactifs -->
+    <section id="tab-inactive" class="panel hidden">
+      <div class="filters">
+        <label>Absents depuis plus de
+          <select id="f-days">
+            <option value="7">7 jours</option>
+            <option value="14" selected>14 jours</option>
+            <option value="30">30 jours</option>
+            <option value="60">60 jours</option>
+            <option value="90">90 jours</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="roster">
+          <thead><tr><th>Nom</th><th class="num">Niv.</th><th>Classe</th><th>Rang</th><th>Dernière connexion</th><th>Note</th></tr></thead>
+          <tbody id="inactive-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="muted small" id="footer"></footer>
+  </section>
+
+  <!-- Fiche membre -->
+  <aside id="drawer" class="drawer hidden" aria-hidden="true">
+    <div class="drawer-backdrop" data-close></div>
+    <div class="drawer-body">
+      <button class="drawer-close btn-ghost" data-close aria-label="Fermer">✕</button>
+      <div id="drawer-content"></div>
+    </div>
+  </aside>
+
+  <div id="loading" class="screen center"><div class="spinner"></div></div>
+
+  <script src="config.js"></script>
+  <script src="demo-data.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

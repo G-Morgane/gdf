@@ -48,7 +48,7 @@ Règle d'accès : quelqu'un qui est sur le serveur Discord = **membre** ; quelqu
 ## 4. Vercel
 
 1. Mets ce dossier sur un dépôt GitHub, puis sur vercel.com : **Add New > Project**, importe le dépôt.
-2. **Root Directory** : `web`. Framework : *Other*. Pas de commande de build.
+2. Framework : *Other*, pas de commande de build. **Root Directory** : vide ou `web`, les deux marchent (`vercel.json` et `api/claim.js` à la racine gèrent le cas vide).
 3. **Environment Variables** :
    | Nom | Valeur |
    |---|---|

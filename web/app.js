@@ -17,8 +17,6 @@
     Human: "Humain", Dwarf: "Nain", NightElf: "Elfe de la nuit", Gnome: "Gnome",
     Orc: "Orc", Scourge: "Mort-vivant", Undead: "Mort-vivant", Tauren: "Tauren", Troll: "Troll",
   };
-  const SLOTS = ["Tête", "Cou", "Épaules", "Chemise", "Torse", "Taille", "Jambes", "Pieds", "Poignets",
-    "Mains", "Doigt 1", "Doigt 2", "Bijou 1", "Bijou 2", "Dos", "Main droite", "Main gauche", "À distance", "Tabard"];
 
   const S = {
     sb: null, session: null, role: null, userName: "",
@@ -46,19 +44,51 @@
   }
   const fmtDate = (ts) => (ts ? new Date(ts).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
-  // Métiers d'un membre : fiche add-on en priorité, sinon annuaire de guilde.
+  const SPELL_URL = ITEM_URL.replace(/item=$/, "spell=");
+  const SLOT_NAMES = ["Munitions", "Tête", "Cou", "Épaules", "Chemise", "Torse", "Taille", "Jambes", "Pieds", "Poignets",
+    "Mains", "Doigt 1", "Doigt 2", "Bijou 1", "Bijou 2", "Dos", "Main droite", "Main gauche", "À distance", "Tabard"];
+  const QUALITY = ["#9d9d9d", "#ffffff", "#1eff00", "#0070dd", "#a335ee", "#ff8000", "#e6cc80", "#00ccff"];
+  const STANDING = ["", "Haï", "Hostile", "Inamical", "Neutre", "Amical", "Honoré", "Révéré", "Exalté"];
+
+  // La fiche add-on existe en deux formats : 0.1 (champs à plat) et 0.2+ (sections).
+  const prof = (m) => m.profile || {};
+  const core = (m) => prof(m).core || prof(m);
   function professions(m) {
     const out = new Map();
     for (const p of asList(m.guild_professions)) {
       if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null });
     }
-    for (const p of asList(m.profile && m.profile.professions)) {
+    const pr = prof(m).professions;
+    for (const p of asList(pr && pr.list ? pr.list : pr)) {
       if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null });
     }
     return [...out.values()];
   }
-  const ilvl = (m) => (m.profile && m.profile.ilvl) || null;
-  const hasAddon = (m) => !!(m.profile && m.profile.level);
+  function gearItems(m) {
+    const g = prof(m).gear;
+    if (g && g.items) return asList(g.items).filter((x) => x && x.id);
+    return asList(g).map((id, i) => ({ slot: i + 1, id })).filter((x) => x.id);
+  }
+  function recipesByProf(m) {
+    const r = prof(m).recipes;
+    return r && r.profs && typeof r.profs === "object" ? r.profs : {};
+  }
+  function specOf(m) {
+    const c = core(m);
+    if (c.spec) return c.spec;
+    const tabs = asList(prof(m).talents && prof(m).talents.tabs);
+    if (!tabs.length || !tabs.some((t) => t.p)) return null;
+    const best = tabs.reduce((a, b) => ((b.p || 0) > (a.p || 0) ? b : a));
+    return best.n ? `${best.n} (${tabs.map((t) => t.p || 0).join("/")})` : null;
+  }
+  const ilvl = (m) => core(m).ilvl || null;
+  const hasAddon = (m) => !!(prof(m).core || prof(m).level);
+  const itemLink = (x, label) => {
+    const href = x.i || x.id ? ITEM_URL + (x.i || x.id) : x.sp ? SPELL_URL + x.sp : null;
+    const color = x.q != null ? ` style="color:${QUALITY[x.q] || "inherit"}"` : "";
+    const text = esc(label || x.n || (x.i || x.id ? "objet #" + (x.i || x.id) : "sort #" + x.sp));
+    return href ? `<a href="${esc(href)}" target="_blank" rel="noopener"${color}>${text}</a>` : `<span${color}>${text}</span>`;
+  };
 
   /* ---------------------------------------------------------------- Auth */
 
@@ -155,6 +185,8 @@
     ["#f-search", "#f-class", "#f-rank", "#f-prof", "#f-online", "#f-addon", "#f-left"].forEach((s) =>
       $(s).addEventListener("input", renderRoster));
     $("#f-days").onchange = renderInactive;
+    $("#f-recipe").addEventListener("input", renderRecipes);
+    $("#f-bank").addEventListener("input", renderBank);
     document.querySelectorAll("[data-close]").forEach((el) => (el.onclick = closeDrawer));
     document.addEventListener("keydown", (e) => e.key === "Escape" && closeDrawer());
 
@@ -191,16 +223,24 @@
     fill("#f-rank", "Tous les rangs", [...ranks.entries()].sort((a, b) => a[0] - b[0]).map(([i, r]) => [String(i), r]));
     fill("#f-prof", "Tous les métiers", [...new Set(ms.flatMap((m) => professions(m).map((p) => p.name)))].sort().map((p) => [p, p]));
 
+    const bank = g.info && g.info.bank;
+    show($('.tab[data-tab="bank"]'), !!(bank && asList(bank.tabs).length));
+    show($('.tab[data-tab="raids"]'), ms.some((m) => asList(prof(m).lockouts && prof(m).lockouts.list).length));
+    if (["bank", "raids"].includes(S.tab) && $(`.tab[data-tab="${S.tab}"]`).classList.contains("hidden")) setTab("roster");
+
     renderStats();
     renderRoster();
     renderProfs();
+    renderRecipes();
     renderInactive();
+    renderBank();
+    renderRaids();
   }
 
   function setTab(t) {
     S.tab = t;
     document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
-    ["roster", "profs", "inactive"].forEach((x) => show($("#tab-" + x), x === t));
+    ["roster", "profs", "inactive", "bank", "raids"].forEach((x) => show($("#tab-" + x), x === t));
   }
 
   function renderStats() {
@@ -281,6 +321,77 @@
     $("#profs-grid").querySelectorAll(".crafter").forEach((el) => (el.onclick = () => openMember(el.dataset.name)));
   }
 
+  // Recherche de recettes : "qui sait fabriquer X ?"
+  function renderRecipes() {
+    const q = ($("#f-recipe").value || "").trim().toLowerCase();
+    const byRecipe = new Map();
+    let total = 0;
+    for (const m of guildMembers(false)) {
+      for (const [profName, p] of Object.entries(recipesByProf(m))) {
+        for (const r of asList(p && p.list)) {
+          if (!r || !r.n) continue;
+          total++;
+          if (q && !r.n.toLowerCase().includes(q)) continue;
+          const key = profName + "|" + r.n;
+          if (!byRecipe.has(key)) byRecipe.set(key, { r, profName, who: [] });
+          byRecipe.get(key).who.push({ m, cd: r.cd });
+        }
+      }
+    }
+    const box = $("#recipes-result");
+    if (!total) {
+      box.innerHTML = `<p class="muted small">Les recettes apparaissent quand un membre équipé de l'add-on ouvre la fenêtre de son métier en jeu.</p>`;
+      return;
+    }
+    if (!q) {
+      box.innerHTML = `<p class="muted small">${byRecipe.size} recettes connues dans la guilde. Tape un nom pour savoir qui peut la fabriquer.</p>`;
+      return;
+    }
+    const list = [...byRecipe.values()].sort((a, b) => a.r.n.localeCompare(b.r.n)).slice(0, 60);
+    const now = Date.now() / 1000;
+    box.innerHTML = list.length ? `<ul class="recipe-list">${list.map(({ r, profName, who }) => `
+      <li><div>${itemLink(r)} <span class="muted small">${esc(profName)}</span></div>
+        <div class="who">${who.map(({ m, cd }) => `<span class="crafter-chip" data-name="${esc(m.name)}" style="color:${classColor(m.class)}">${esc(shortName(m.name))}${m.online ? ' <span class="dot on"></span>' : ""}${cd && cd > now ? ` <span class="muted small" title="Temps de recharge">⏳ ${esc(fmtDate(cd * 1000))}</span>` : ""}</span>`).join("")}</div></li>`).join("")}</ul>`
+      : `<p class="empty">Personne ne connaît de recette contenant « ${esc(q)} ».</p>`;
+    box.querySelectorAll("[data-name]").forEach((el) => (el.onclick = () => openMember(el.dataset.name)));
+  }
+
+  function renderBank() {
+    const g = S.guilds.find((x) => x.key === S.guildKey);
+    const bank = g && g.info && g.info.bank;
+    if (!bank) return;
+    const q = ($("#f-bank").value || "").trim().toLowerCase();
+    const money = bank.money ? `${Math.floor(bank.money / 10000)} po ${Math.floor(bank.money / 100) % 100} pa` : "";
+    $("#bank-meta").textContent = [money, bank.at ? "vue " + ago(bank.at * 1000) : ""].filter(Boolean).join(" · ");
+    $("#bank-grid").innerHTML = asList(bank.tabs).map((t) => {
+      const items = asList(t.items).filter((x) => !q || (x.n || "").toLowerCase().includes(q));
+      if (q && !items.length) return "";
+      return `<div class="prof-card"><h3>${esc(t.name || "Onglet")} <span>${items.length} objet(s)</span></h3>
+        ${t.viewable === false ? '<p class="muted small">Onglet non visible par l\'uploader.</p>' : ""}
+        <ul class="gear">${items.map((x) => `<li>${itemLink(x)}<span class="muted">× ${esc(x.c)}</span></li>`).join("")}</ul></div>`;
+    }).join("") || `<p class="empty">Rien ne correspond.</p>`;
+  }
+
+  function renderRaids() {
+    const now = Date.now() / 1000;
+    const byInst = new Map();
+    for (const m of guildMembers(false)) {
+      for (const l of asList(prof(m).lockouts && prof(m).lockouts.list)) {
+        if (!l || !l.n || (l.reset && l.reset < now)) continue;
+        const key = l.n + (l.d ? " (" + l.d + ")" : "");
+        if (!byInst.has(key)) byInst.set(key, []);
+        byInst.get(key).push({ m, l });
+      }
+    }
+    $("#raids-grid").innerHTML = [...byInst.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, list]) => `
+      <div class="prof-card"><h3>${esc(name)} <span>${list.length} verrouillé(s)</span></h3>
+        ${list.map(({ m, l }) => `<div class="crafter" data-name="${esc(m.name)}">
+          <span class="cname" style="color:${classColor(m.class)}">${esc(shortName(m.name))}</span>
+          <span class="muted small">${l.total ? esc(l.done || 0) + "/" + esc(l.total) + " · " : ""}reset ${esc(fmtDate(l.reset * 1000))}</span></div>`).join("")}
+      </div>`).join("") || `<p class="empty">Aucun membre verrouillé en ce moment (d'après les fiches add-on).</p>`;
+    $("#raids-grid").querySelectorAll("[data-name]").forEach((el) => (el.onclick = () => openMember(el.dataset.name)));
+  }
+
   function renderInactive() {
     const days = +$("#f-days").value;
     const limit = Date.now() - days * 86400e3;
@@ -300,32 +411,119 @@
   function openMember(name) {
     const m = S.members.find((x) => x.guild_key === S.guildKey && x.name === name);
     if (!m) return;
-    const p = m.profile || {};
+    const p = prof(m), c = core(m);
     const kv = (rows) => `<dl class="kv">${rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    const sec = (title, body, when) => (body ? `<section><h4>${esc(title)}${typeof when === "number" ? ` <span class="when">${esc(ago(when * 1000))}</span>` : ""}</h4>${body}</section>` : "");
+    const fold = (summary, body) => `<details><summary>${summary}</summary>${body}</details>`;
     const officerNote = S.notes[m.guild_key + "|" + m.name];
-    const gear = asList(p.gear);
+    const now = Date.now() / 1000;
+
+    const gear = gearItems(m).sort((a, b) => a.slot - b.slot);
+    const gearHtml = gear.length ? `<ul class="gear">${gear.map((x) => `
+      <li><span class="muted">${esc(SLOT_NAMES[x.slot] || "Emplacement " + x.slot)}</span>
+        <span>${itemLink(x)}${x.l ? ` <span class="muted small">${esc(x.l)}</span>` : ""}${x.e ? ' <span class="small" title="Enchanté">✦</span>' : ""}${x.dur != null && x.dur < 30 ? ` <span class="warn small" title="Durabilité">${esc(x.dur)} %</span>` : ""}</span></li>`).join("")}</ul>` : "";
+
+    const profHtml = professions(m).map((x) => `
+      <div class="crafter"><span>${esc(x.name)}</span><span class="muted">${esc(x.skill)}${x.max ? " / " + esc(x.max) : ""}</span>
+      <div class="bar"><i style="width:${Math.min(100, (x.skill / Math.max(300, x.max || 0)) * 100)}%"></i></div></div>`).join("");
+
+    const recipes = Object.entries(recipesByProf(m)).sort((a, b) => a[0].localeCompare(b[0]));
+    const recipesHtml = recipes.map(([name, r]) => {
+      const list = asList(r && r.list);
+      return fold(`${esc(name)} <span class="muted small">${list.length} recette(s)</span>`,
+        `<ul class="plain">${list.map((x) => `<li>${itemLink(x)}${x.cd && x.cd > now ? ` <span class="muted small">⏳ ${esc(fmtDate(x.cd * 1000))}</span>` : ""}</li>`).join("")}</ul>`);
+    }).join("");
+
+    const tal = p.talents;
+    const talHtml = tal && asList(tal.tabs).length ? `<div class="chips">${asList(tal.tabs).map((t) => `<span class="prof-chip">${esc(t.n || "?")} <strong>${esc(t.p || 0)}</strong></span>`).join("")}</div>
+      ${asList(tal.tabs).filter((t) => asList(t.list).length).map((t) => fold(esc(t.n || "Arbre"),
+        `<ul class="plain">${asList(t.list).map((x) => `<li>${esc(x.n)} <span class="muted small">${esc(x.r)}/${esc(x.m)}</span></li>`).join("")}</ul>`)).join("")}
+      ${tal.unspent ? `<p class="muted small">${esc(tal.unspent)} point(s) non dépensé(s)</p>` : ""}` : "";
+
+    const st = p.stats;
+    const statsHtml = st ? kv([
+      ["Vie / ressource", esc([st.hp, st.power].filter((v) => v != null).join(" / "))],
+      ["For / Agi / End", esc([st.str, st.agi, st.sta].map((v) => v ?? "—").join(" / "))],
+      ["Int / Esp", esc([st.int, st.spi].map((v) => v ?? "—").join(" / "))],
+      ["Armure", esc(st.armor)],
+      ["Défense", esc(st.defense)],
+      ["Esquive / Parade / Blocage", st.dodge != null ? esc(`${st.dodge} % / ${st.parry ?? 0} % / ${st.block ?? 0} %`) : null],
+      ["PA / PA distance", esc([st.ap, st.rap].filter((v) => v != null).join(" / "))],
+      ["Crit. / Toucher", st.crit != null ? esc(`${st.crit} % / ${st.hit ?? 0} %`) : null],
+      ["Puissance des sorts", st.spellPower ? esc(st.spellPower) : null],
+      ["Soins", st.healing ? esc(st.healing) : null],
+      ["Crit. sorts", st.spellCrit ? esc(st.spellCrit + " %") : null],
+      ["Mana / 5 s", st.mp5 ? esc(st.mp5 + (st.mp5Casting != null ? ` (${st.mp5Casting} en incantation)` : "")) : null],
+      ["Résistances", st.resist ? esc(["fire", "nature", "frost", "shadow", "arcane"].map((k) => ({ fire: "Feu", nature: "Nature", frost: "Givre", shadow: "Ombre", arcane: "Arcanes" }[k]) + " " + (st.resist[k] ?? 0)).join(" · ")) : null],
+    ]) : "";
+
+    const reps = asList(p.reputations && p.reputations.list).filter((x) => x && x.n);
+    const repHtml = reps.length ? fold(`${reps.filter((x) => x.s >= 8).length} exalté(s), ${reps.filter((x) => x.s === 7).length} révéré(s)`,
+      `<ul class="plain">${reps.sort((a, b) => (b.s || 0) - (a.s || 0)).map((x) => `<li>${esc(x.n)} <span class="muted small">${esc(STANDING[x.s] || "")}${x.max > x.min ? ` ${esc((x.v || 0) - (x.min || 0))}/${esc(x.max - x.min)}` : ""}</span></li>`).join("")}</ul>`) : "";
+
+    const locks = asList(p.lockouts && p.lockouts.list).filter((l) => l && (!l.reset || l.reset > now));
+    const lockHtml = locks.length ? `<ul class="plain">${locks.map((l) => `<li>${esc(l.n)}${l.d ? ` <span class="muted small">${esc(l.d)}</span>` : ""}
+      <span class="muted small">${l.total ? esc(l.done || 0) + "/" + esc(l.total) + " · " : ""}reset ${esc(fmtDate(l.reset * 1000))}</span></li>`).join("")}</ul>` : "";
+
+    const pvp = p.pvp;
+    const pvpHtml = pvp && (pvp.hk || pvp.rank) ? kv([
+      ["Rang", esc(pvp.rankName || (pvp.rank ? "Rang " + pvp.rank : null))],
+      ["Victoires honorables", esc(pvp.hk)],
+      ["Cette semaine", pvp.weekHK != null ? esc(`${pvp.weekHK} VH${pvp.weekHonor ? ", " + pvp.weekHonor + " honneur" : ""}`) : null],
+      ["Plus haut rang", esc(pvp.highestRank || null)],
+    ]) : "";
+
+    const skills = asList(p.skills && p.skills.list).filter((x) => x && x.n && x.m > 1);
+    const skillHtml = skills.length ? fold(`${skills.length} compétence(s)`, `<ul class="plain">${skills.map((x) =>
+      `<li>${esc(x.n)} <span class="muted small">${esc(x.r)}/${esc(x.m)}${x.cat ? " · " + esc(x.cat) : ""}</span></li>`).join("")}</ul>`) : "";
+
+    const bagList = (inv) => `<ul class="gear">${asList(inv.items).sort((a, b) => (b.q || 0) - (a.q || 0) || String(a.n).localeCompare(String(b.n)))
+      .map((x) => `<li>${itemLink(x)}<span class="muted">× ${esc(x.c)}</span></li>`).join("")}</ul>`;
+    const inv = p.inventory, bank = p.bank;
+    const invHtml = [
+      inv && asList(inv.items).length ? fold(`Sacs <span class="muted small">${asList(inv.items).length} objet(s)${inv.slots ? `, ${inv.free}/${inv.slots} places libres` : ""}</span>`, bagList(inv)) : "",
+      bank && asList(bank.items).length ? fold(`Banque <span class="muted small">${asList(bank.items).length} objet(s), vue ${esc(ago(bank.at * 1000))}</span>`, bagList(bank)) : "",
+    ].join("");
+
+    const coll = p.collections;
+    const collHtml = coll ? kv([
+      ["Montures", asList(coll.mounts).length ? esc(asList(coll.mounts).map((x) => x.n).join(", ")) : null],
+      ["Mascottes", asList(coll.pets).length ? esc(asList(coll.pets).length) : null],
+      ["Monnaies", asList(coll.currencies).length ? esc(asList(coll.currencies).map((x) => `${x.n} ${x.c}`).join(" · ")) : null],
+    ]) : "";
+    const quests = p.quests;
 
     $("#drawer-content").innerHTML = `
       <h2 style="color:${classColor(m.class)}">${esc(shortName(m.name))}</h2>
-      <div class="muted">${esc([m.level && "Niveau " + m.level, RACES[p.race] || p.race, className(m), p.spec].filter(Boolean).join(" · "))}</div>
+      <div class="muted">${esc([m.level && "Niveau " + m.level, RACES[c.race] || c.raceLocalized || c.race, className(m), specOf(m)].filter(Boolean).join(" · "))}</div>
+      ${c.title ? `<div class="muted small">${esc(c.title)}</div>` : ""}
       <section>${kv([
         ["Rang", esc(m.rank)],
         ["Statut", m.online ? '<span class="dot on"></span>en ligne' : esc(ago(m.last_online))],
         ["Zone", esc(m.zone)],
         ["Royaume", esc(m.name.split("-")[1])],
-        ["Faction", esc(p.faction)],
-        ["Niveau d'objet", esc(p.ilvl)],
-        ["Hauts faits", esc(m.achievement_points)],
-        ["Fiche add-on", hasAddon(m) ? esc(fmtDate(m.profile_at)) : "non installé"],
+        ["Faction", esc(c.faction)],
+        ["Niveau d'objet", esc(c.ilvl)],
+        ["Expérience", c.xpMax && m.level ? esc(`${Math.round((c.xp / c.xpMax) * 100)} %${c.rested ? " (+ " + Math.round((c.rested / c.xpMax) * 100) + " % reposé)" : ""}`) : null],
+        ["Pierre de foyer", esc(c.bind)],
+        ["Hauts faits", esc(m.achievement_points || c.achievementPoints)],
+        ["Quêtes terminées", quests && quests.count ? esc(quests.count) : null],
+        ["Fiche add-on", hasAddon(m) ? esc(fmtDate(m.profile_at)) + (p.addonVersion ? ` <span class="muted small">v${esc(p.addonVersion)}</span>` : "") : "non installé"],
         m.in_guild ? [] : ["A quitté la guilde", esc(fmtDate(m.left_at))],
       ])}</section>
       ${m.public_note ? `<section><h4>Note publique</h4><div class="note">${esc(m.public_note)}</div></section>` : ""}
       ${officerNote ? `<section><h4>Note d'officier</h4><div class="note officer">${esc(officerNote)}</div></section>` : ""}
-      ${professions(m).length ? `<section><h4>Métiers</h4>${professions(m).map((x) => `
-        <div class="crafter"><span>${esc(x.name)}</span><span class="muted">${esc(x.skill)}${x.max ? " / " + esc(x.max) : ""}</span>
-        <div class="bar"><i style="width:${Math.min(100, (x.skill / Math.max(300, x.max || 0)) * 100)}%"></i></div></div>`).join("")}</section>` : ""}
-      ${gear.some((id) => id) ? `<section><h4>Équipement</h4><ul class="gear">${gear.map((id, i) => id ? `
-        <li><span class="muted">${esc(SLOTS[i] || "Emplacement " + (i + 1))}</span><a href="${esc(ITEM_URL + id)}" target="_blank" rel="noopener">objet #${esc(id)}</a></li>` : "").join("")}</ul></section>` : ""}
+      ${sec("Équipement", gearHtml, p.gear && p.gear.at)}
+      ${sec("Talents", talHtml, tal && tal.at)}
+      ${sec("Métiers", profHtml)}
+      ${sec("Recettes", recipesHtml, p.recipes && p.recipes.at)}
+      ${sec("Statistiques", statsHtml, st && st.at)}
+      ${sec("Raids et donjons verrouillés", lockHtml)}
+      ${sec("JcJ", pvpHtml)}
+      ${sec("Réputations", repHtml)}
+      ${sec("Compétences", skillHtml)}
+      ${sec("Collections", collHtml)}
+      ${sec("Sacs et banque", invHtml)}
     `;
     show($("#drawer"));
     $("#drawer").setAttribute("aria-hidden", "false");

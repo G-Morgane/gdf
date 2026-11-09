@@ -147,6 +147,27 @@ table.roster { width: 100%; border-collapse: collapse; }
 .kv dd { margin: 0; }
 .gear { list-style: none; padding: 0; margin: 0; }
 .gear li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.gear li > span:last-child { text-align: right; }
+.gear a, .plain a, .recipe-list a { text-decoration: none; }
+.gear a:hover, .plain a:hover, .recipe-list a:hover { text-decoration: underline; }
+.plain { list-style: none; padding: 4px 0 4px 12px; margin: 0; }
+.plain li { padding: 2px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.small { font-size: 12px; }
+.warn { color: #ff7a5c; }
+.when { text-transform: none; letter-spacing: 0; color: var(--muted); opacity: .7; font-size: 11px; margin-left: 6px; }
+details { border-bottom: 1px dashed var(--line); padding: 4px 0; }
+details > summary { cursor: pointer; list-style: none; }
+details > summary::before { content: "▸ "; color: var(--muted); }
+details[open] > summary::before { content: "▾ "; }
+.recipe-search { margin-bottom: 16px; }
+.recipe-search input { width: 100%; margin-bottom: 8px; }
+.recipe-list { list-style: none; padding: 0; margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.recipe-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.recipe-list li:last-child { border-bottom: 0; }
+.recipe-list .who { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.crafter-chip { cursor: pointer; }
+.crafter-chip:hover { text-decoration: underline; }
 .note { background: var(--bg-2); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; }
 .note.officer { border-left: 3px solid var(--gold); }
 

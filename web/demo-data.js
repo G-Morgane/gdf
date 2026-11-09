@@ -43,6 +43,61 @@ window.GS_DEMO = function () {
       profile_at: addon ? iso(2 * H) : null,
     };
   });
+  // Deux fiches au format complet (add-on 0.2+), pour montrer toutes les sections.
+  const sec = (s) => Math.floor(now / 1000) - s;
+  const reset = sec(-3 * 86400);
+  const full = (m, extra) => {
+    const p = m.profile;
+    m.profile = {
+      v: 2, name: m.name, addonVersion: "0.2.0",
+      core: { at: sec(7200), level: p.level, race: p.race, class: p.class, faction: p.faction, ilvl: p.ilvl, spec: null,
+        xp: 0, xpMax: 0, bind: "Orgrimmar", title: extra.title },
+      professions: { at: sec(7200), list: p.professions },
+      gear: { at: sec(7200), items: extra.gear },
+      talents: { at: sec(86400), tabs: extra.talents, unspent: 0 },
+      recipes: { at: sec(3600), profs: extra.recipes },
+      stats: { at: sec(7200), ...extra.stats },
+      lockouts: { at: sec(7200), list: extra.lockouts },
+      reputations: { at: sec(7200), list: [
+        { n: "Orgrimmar", s: 8, v: 42999, min: 42000, max: 42999, cat: "Horde" },
+        { n: "Aube d'argent", s: 7, v: 30200, min: 21000, max: 42000, cat: "Autres" },
+        { n: "Cercle cénarien", s: 6, v: 13100, min: 9000, max: 21000, cat: "Autres" },
+      ] },
+      pvp: { at: sec(7200), hk: 1840, rank: 7, rankName: "Garde de pierre", weekHK: 120, weekHonor: 5400 },
+      inventory: { at: sec(600), slots: 96, free: 21, items: [
+        { i: 13444, n: "Potion de mana excellente", c: 12, q: 1 }, { i: 13446, n: "Potion de soins majeure", c: 8, q: 1 },
+        { i: 12360, n: "Barre d'arcanite", c: 3, q: 2 }, { i: 7076, n: "Essence de terre", c: 6, q: 2 },
+      ] },
+    };
+  };
+  full(members[0], {
+    title: "Défenseur",
+    gear: [
+      { slot: 1, id: 16921, n: "Auréole de transcendance", q: 4, l: 76, e: 2588 }, { slot: 3, id: 16924, n: "Spallières de transcendance", q: 4, l: 76 },
+      { slot: 5, id: 16923, n: "Robe de transcendance", q: 4, l: 76, e: 1891 }, { slot: 16, id: 17103, n: "Lame d'Azuregos", q: 4, l: 70, dur: 22 },
+      { slot: 13, id: 19395, n: "Ecaille-de-rêve", q: 4, l: 77 },
+    ],
+    talents: [{ n: "Discipline", p: 21, list: [{ n: "Inspiration intérieure", r: 5, m: 5 }] }, { n: "Sacré", p: 30, list: [{ n: "Esprit de rédemption", r: 1, m: 1 }] }, { n: "Ombre", p: 0, list: [] }],
+    recipes: {
+      Alchimie: { at: sec(3600), skill: 300, max: 300, list: [
+        { n: "Flacon des Titans", i: 13510, cd: null }, { n: "Flacon de sagesse distillée", i: 13511 },
+        { n: "Transmutation : arcanite", i: 12360, cd: sec(-20 * 3600) }, { n: "Potion de mana excellente", i: 13444 },
+      ] },
+    },
+    stats: { hp: 4210, power: 6800, int: 290, spi: 260, sta: 210, str: 40, agi: 50, armor: 1900, healing: 820, spellCrit: 6.2, mp5: 48, mp5Casting: 22,
+      resist: { fire: 10, nature: 0, frost: 15, shadow: 30, arcane: 0 } },
+    lockouts: [{ n: "Cœur du Magma", raid: true, size: 40, reset, done: 8, total: 10 }, { n: "Repaire d'Onyxia", raid: true, size: 40, reset: sec(-86400), done: 1, total: 1 }],
+  });
+  full(members[1], {
+    title: null,
+    gear: [{ slot: 1, id: 16963, n: "Heaume de colère", q: 4, l: 76 }, { slot: 16, id: 19019, n: "Thunderfury, lame bénie du Cherchevent", q: 5, l: 80, e: 1900 }],
+    talents: [{ n: "Armes", p: 5, list: [] }, { n: "Fureur", p: 5, list: [] }, { n: "Protection", p: 41, list: [{ n: "Dernier rempart", r: 1, m: 1 }] }],
+    recipes: { Forge: { at: sec(7200), skill: 295, max: 300, list: [{ n: "Barre d'arcanite", i: 12360 }, { n: "Martelame d'arcanite", i: 19166 }] } },
+    stats: { hp: 8900, power: 100, str: 320, agi: 140, sta: 520, armor: 11200, defense: 440, dodge: 9.8, parry: 11.2, block: 14.5, ap: 1350, crit: 9.1, hit: 6,
+      resist: { fire: 75, nature: 0, frost: 0, shadow: 0, arcane: 0 } },
+    lockouts: [{ n: "Cœur du Magma", raid: true, size: 40, reset, done: 10, total: 10 }],
+  });
+
   members.push({
     guild_key: key, name: `Parti-${realm}`, rank: "Membre", rank_index: 3, level: 60, class: "ROGUE",
     in_guild: false, left_at: iso(10 * D), last_online: iso(12 * D), guild_professions: {},
@@ -50,7 +105,13 @@ window.GS_DEMO = function () {
 
   return {
     guilds: [{
-      key, name: "Les Éternels", realm, info: { motd: "Raid Molten Core jeudi 21h – flacons obligatoires !" },
+      key, name: "Les Éternels", realm, info: {
+        motd: "Raid Molten Core jeudi 21h – flacons obligatoires !",
+        bank: { at: Math.floor(now / 1000) - 5400, money: 1234567, tabs: [
+          { name: "Consommables", viewable: true, items: [{ i: 13510, n: "Flacon des Titans", c: 4, q: 1 }, { i: 13444, n: "Potion de mana excellente", c: 40, q: 1 }] },
+          { name: "Composants", viewable: true, items: [{ i: 12360, n: "Barre d'arcanite", c: 7, q: 2 }, { i: 7078, n: "Essence de feu", c: 22, q: 2 }, { i: 17010, n: "Cœur ardent", c: 3, q: 3 }] },
+        ] },
+      },
       ranks, scanned_at: iso(20 * 60e3), scanned_by: `Aelwyn-${realm}`,
     }],
     members,

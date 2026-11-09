@@ -49,6 +49,8 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="roster">Roster</button>
       <button class="tab" data-tab="profs">Métiers</button>
+      <button class="tab" data-tab="raids">Raids</button>
+      <button class="tab" data-tab="bank">Banque</button>
       <button class="tab" data-tab="inactive">Inactifs</button>
     </nav>
 
@@ -85,7 +87,26 @@
 
     <!-- Métiers -->
     <section id="tab-profs" class="panel hidden">
+      <div class="recipe-search">
+        <input id="f-recipe" type="search" placeholder="Qui sait fabriquer… (ex. Flacon, Robe, Enchanter bracelets)" autocomplete="off">
+        <div id="recipes-result"></div>
+      </div>
       <div id="profs-grid" class="profs-grid"></div>
+    </section>
+
+    <!-- Banque de guilde -->
+    <section id="tab-bank" class="panel hidden">
+      <div class="filters">
+        <input id="f-bank" type="search" placeholder="Chercher un objet…" autocomplete="off">
+        <span id="bank-meta" class="muted small"></span>
+      </div>
+      <div id="bank-grid" class="profs-grid"></div>
+    </section>
+
+    <!-- Raids -->
+    <section id="tab-raids" class="panel hidden">
+      <p class="muted small">Qui est déjà verrouillé cette semaine (d'après les fiches add-on).</p>
+      <div id="raids-grid" class="profs-grid"></div>
     </section>
 
     <!-- Inactifs -->

@@ -95,9 +95,17 @@ Le jeton commun est lisible dans le zip : s'il fuit, `update upload_tokens set r
 |---|---|---|
 | Roster | **tous** les membres | nom, rang, niveau, classe, zone, note publique, note d'officier (si l'uploader a le droit de la voir), en ligne, dernière connexion, hauts faits, départs |
 | Annuaire des métiers de guilde | tous, **si le client Forever a cette API** | métier + niveau |
-| Fiche add-on | membres **avec GuildScribe** | race, faction, iLvl, spécialisation, métiers (niveau / max), objets équipés |
+| Banque de guilde | quand un membre équipé l'ouvre, **si Forever en a une** | objets par onglet, or de la guilde |
+| Fiche add-on, partagée en jeu | membres **avec GuildScribe** | race, faction, titre, XP, iLvl, spécialisation, équipement complet (objet, niveau, enchantement, gemmes, suffixe, durabilité), talents point par point, métiers, **recettes** (avec temps de recharge), statistiques, résistances, raids verrouillés, JcJ, compétences d'armes, réputations |
+| Fiche add-on, envoyée seulement par l'uploader du joueur | membres **avec le kit** | contenu des sacs et de la banque, quêtes terminées et en cours, montures, monnaies |
 
-L'or et les infos de compte ne sont jamais envoyés. Si plusieurs officiers envoient, seules les données plus récentes remplacent les anciennes.
+Les recettes sont lues quand le joueur ouvre la fenêtre de son métier, la banque quand il l'ouvre. L'or du joueur et les infos de compte ne sont jamais envoyés.
+
+**Fusion** : chaque section a sa date. Le site garde la plus récente, quelle que soit la personne qui l'a envoyée, et ne perd jamais une section absente d'un envoi.
+
+**Pas besoin de redistribuer l'add-on pour afficher plus de choses** : tout ce qui est collecté arrive déjà dans Supabase, le site peut être enrichi sans toucher à l'add-on. Et une version plus récente de l'add-on peut ajouter des sections : les anciennes versions les relaient quand même. Quand un membre voit quelqu'un avec une version plus récente, l'add-on lui conseille de reprendre le zip.
+
+Partage en jeu : les **officiers** (ou `/gs collecteur`) demandent les fiches qui leur manquent aux membres connectés ; les autres n'envoient que ce qui a changé.
 
 ## À vérifier au premier lancement
 

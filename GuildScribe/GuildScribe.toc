@@ -1,10 +1,12 @@
 ## Interface: 16001
 ## Title: GuildScribe
-## Notes: Collecte les infos de la guilde (roster, niveaux, métiers, équipement) pour l'app de guilde.
+## Notes: Collecte les infos de la guilde (roster, niveaux, métiers, recettes, équipement, talents...) pour le site de guilde.
 ## Author: Morgane
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: GuildScribeDB
 
 Json.lua
 Core.lua
+Collect.lua
+Comm.lua
 Export.lua

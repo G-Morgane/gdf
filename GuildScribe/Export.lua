@@ -46,7 +46,7 @@ local function countMembers(g)
   for _, m in pairs(g.members) do
     if m.inGuild then
       total = total + 1
-      if m.profile and m.profile.level then withAddon = withAddon + 1 end
+      if m.profile and (m.profile.core or m.profile.level) then withAddon = withAddon + 1 end
     end
   end
   return total, withAddon
@@ -58,9 +58,21 @@ SlashCmdList.GUILDSCRIBE = function(msg)
   local cmd = (msg or ""):lower():match("^%s*(%S*)")
   local g = ns.GuildDB()
 
-  if cmd == "scan" then
+  if cmd == "collecteur" then
+    local db = ns.DB()
+    db.collector = not ns.IsCollector()
+    ns.Print(db.collector and "mode collecteur activé : tu récupères les fiches des autres membres."
+      or "mode collecteur désactivé.")
+    if db.collector then ns.RequestAll() end
+  elseif cmd == "debug" then
+    ns.debug = not ns.debug
+    ns.Print("debug", ns.debug and "activé" or "désactivé")
+  elseif cmd == "version" then
+    ns.Print("version", ns.VERSION, ns.IsCollector() and "(collecteur)" or "")
+  elseif cmd == "scan" then
     if not g then return ns.Print("tu n'es pas dans une guilde.") end
     ns.ScanNow()
+    ns.Update()
     local total, withAddon = countMembers(g)
     ns.Print(("roster scanné : %d membres, %d fiches détaillées."):format(total, withAddon))
   elseif cmd == "sync" then
@@ -82,5 +94,7 @@ SlashCmdList.GUILDSCRIBE = function(msg)
     print("  /gs sync   – demander leur fiche aux membres qui ont l'add-on")
     print("  /gs stats  – résumé")
     print("  /gs export – afficher le JSON à copier")
+    print("  /gs collecteur – récupérer aussi les fiches des autres (auto pour les officiers)")
+    print("  /gs version")
   end
 end

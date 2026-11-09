@@ -127,6 +127,26 @@ returns boolean language sql immutable as $$
   select case when jsonb_typeof(j->k) = 'boolean' then (j->>k)::boolean end
 $$;
 
+-- Fusion de deux objets "à sections" (fiche add-on, infos de guilde) :
+-- pour chaque clé, la section qui a le champ "at" le plus récent gagne ;
+-- les autres clés suivent p_newer (true = l'envoi est plus récent).
+-- Une section absente de l'envoi est conservée (ex. sacs, banque : seul
+-- l'uploader du joueur les connaît).
+create or replace function public._gs_merge_sections(p_old jsonb, p_new jsonb, p_newer boolean)
+returns jsonb language sql immutable as $$
+  select coalesce(jsonb_object_agg(k, case
+      when o.v is null then n.v
+      when n.v is null then o.v
+      when jsonb_typeof(o.v -> 'at') = 'number' or jsonb_typeof(n.v -> 'at') = 'number' then
+        case when coalesce(case when jsonb_typeof(n.v -> 'at') = 'number' then (n.v ->> 'at')::numeric end, 0)
+               >= coalesce(case when jsonb_typeof(o.v -> 'at') = 'number' then (o.v ->> 'at')::numeric end, 0)
+             then n.v else o.v end
+      when coalesce(p_newer, false) then n.v
+      else o.v end), '{}'::jsonb)
+  from jsonb_each(case when jsonb_typeof(p_old) = 'object' then p_old else '{}'::jsonb end) o(k, v)
+  full join jsonb_each(case when jsonb_typeof(p_new) = 'object' then p_new else '{}'::jsonb end) n(k, v) using (k)
+$$;
+
 ---------------------------------------------------------------------------
 -- Création d'un jeton d'upload (à lancer dans le SQL Editor uniquement) :
 --   select public.create_upload_token('Morgane');
@@ -194,14 +214,14 @@ begin
       now()
     )
     on conflict (key) do update set
-      name = excluded.name,
-      realm = excluded.realm,
-      info = excluded.info,
-      ranks = excluded.ranks,
-      scanned_at = excluded.scanned_at,
-      scanned_by = excluded.scanned_by,
-      updated_at = now()
-    where t.scanned_at is null or excluded.scanned_at >= t.scanned_at;
+      name       = case when t.scanned_at is null or excluded.scanned_at >= t.scanned_at then excluded.name else t.name end,
+      realm      = case when t.scanned_at is null or excluded.scanned_at >= t.scanned_at then excluded.realm else t.realm end,
+      info       = public._gs_merge_sections(t.info, excluded.info,
+                     t.scanned_at is null or excluded.scanned_at >= t.scanned_at),
+      ranks      = case when t.scanned_at is null or excluded.scanned_at >= t.scanned_at then excluded.ranks else t.ranks end,
+      scanned_by = case when t.scanned_at is null or excluded.scanned_at >= t.scanned_at then excluded.scanned_by else t.scanned_by end,
+      scanned_at = greatest(t.scanned_at, excluded.scanned_at),
+      updated_at = now();
 
     for m in select key, value from jsonb_each(
       case when jsonb_typeof(gv->'members') = 'object' then gv->'members' else '{}'::jsonb end
@@ -244,15 +264,14 @@ begin
         where excluded.updated_at >= t.updated_at;
       end if;
 
-      -- Fiche détaillée de l'add-on : seulement si plus récente.
+      -- Fiche détaillée de l'add-on : fusion section par section (la plus récente gagne).
       update public.members t set
-        profile    = mv->'profile',
-        profile_at = _gs_ts(mv, 'profileAt'),
+        profile    = public._gs_merge_sections(t.profile, mv->'profile',
+                       t.profile_at is null or _gs_ts(mv, 'profileAt') >= t.profile_at),
+        profile_at = greatest(t.profile_at, _gs_ts(mv, 'profileAt')),
         updated_at = now()
       where t.guild_key = g.key and t.name = m.key
-        and jsonb_typeof(mv->'profile') = 'object'
-        and _gs_ts(mv, 'profileAt') is not null
-        and (t.profile_at is null or _gs_ts(mv, 'profileAt') >= t.profile_at);
+        and jsonb_typeof(mv->'profile') = 'object';
 
       -- Annuaire des métiers de guilde : fusion par métier.
       if jsonb_typeof(mv->'guildProfessions') = 'object' then

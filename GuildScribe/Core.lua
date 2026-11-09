@@ -1,52 +1,56 @@
 -- GuildScribe : collecte des infos de guilde pour WoW Forever.
 --
--- Deux sources :
+-- Trois sources :
 --   1. Le roster de guilde (tout le monde, même sans l'add-on) : nom, rang,
---      niveau, classe, zone, notes, dernière connexion...
---   2. Les membres qui ont l'add-on s'envoient leur fiche détaillée par canal
---      d'add-on (métiers, niveau d'objet, équipement, race...).
--- Tout est stocké dans GuildScribeDB (SavedVariables), lu ensuite par l'app.
+--      niveau, classe, zone, notes, dernière connexion... (Core.lua)
+--   2. La fiche détaillée du joueur, découpée en sections horodatées :
+--      équipement, talents, métiers, recettes, stats, réputations... (Collect.lua)
+--   3. Les fiches des autres membres qui ont l'add-on, reçues par le canal
+--      caché de la guilde (Comm.lua).
+-- Tout est stocké dans GuildScribeDB (SavedVariables), lu ensuite par l'uploader.
 
 local ADDON, ns = ...
-local PREFIX = "GSCRIBE"
-local PROTO = 1
-local SCHEMA = 1
+local SCHEMA = 2
 
-local frame = CreateFrame("Frame")
-local db, guildKey
-local lastBroadcast = 0
-local pendingRoster = false
+ns.ADDON = ADDON
+ns.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version"))
+  or (GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version")) or "?"
 
 ---------------------------------------------------------------------------
 -- Utilitaires
 ---------------------------------------------------------------------------
 
-local function print_(...)
+function ns.Print(...)
   print("|cff33ccffGuildScribe|r:", ...)
 end
-ns.Print = print_
 
-local function realmName()
-  return (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName() or ""):gsub("%s", "")
-end
+function ns.Now() return time() end
 
-local function fullName(name)
-  if not name or name == "" then return nil end
-  if name:find("-", 1, true) then return name end
-  return name .. "-" .. realmName()
-end
-
-local function playerFullName()
-  return fullName(UnitName("player"))
-end
-
-local function now() return time() end
-
-local function after(sec, fn)
+function ns.After(sec, fn)
   if C_Timer and C_Timer.After then C_Timer.After(sec, fn) end
 end
 
-local function split(s, sep)
+-- Appel protégé : renvoie les résultats, ou rien si la fonction n'existe pas
+-- sur ce client ou plante. Toute la collecte passe par là.
+function ns.Safe(fn, ...)
+  if type(fn) ~= "function" then return nil end
+  local r = { pcall(fn, ...) }
+  if not r[1] then return nil end
+  return unpack(r, 2, table.maxn(r))
+end
+
+local debounces = {}
+function ns.Debounce(key, sec, fn)
+  if debounces[key] then return end
+  debounces[key] = true
+  ns.After(sec, function()
+    debounces[key] = nil
+    local ok, err = pcall(fn)
+    if not ok and ns.debug then ns.Print("erreur", key, err) end
+  end)
+end
+
+function ns.Split(s, sep)
   local out = {}
   if not s or s == "" then return out end
   for part in (s .. sep):gmatch("(.-)" .. sep:gsub("%p", "%%%0")) do
@@ -55,10 +59,121 @@ local function split(s, sep)
   return out
 end
 
--- Les champs envoyés ne doivent pas contenir nos séparateurs.
-local function clean(s)
-  return (tostring(s or ""):gsub("[|~;:,]", " "))
+-- Hash court et stable d'une chaîne (pour savoir si une section a changé).
+function ns.Hash(s)
+  local h = 5381
+  for i = 1, #s do
+    h = (h * 33 + s:byte(i)) % 2147483648 -- reste sous 2^31 pour string.format
+  end
+  return string.format("%08x", h)
 end
+
+function ns.RealmName()
+  return (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName() or ""):gsub("%s", "")
+end
+
+function ns.FullName(name)
+  if not name or name == "" then return nil end
+  if name:find("-", 1, true) then return name end
+  return name .. "-" .. ns.RealmName()
+end
+
+function ns.PlayerName()
+  return ns.FullName(UnitName("player"))
+end
+
+-- Compare deux versions "1.2.3" : renvoie true si a > b.
+function ns.NewerVersion(a, b)
+  local pa, pb = ns.Split(a or "", "."), ns.Split(b or "", ".")
+  for i = 1, math.max(#pa, #pb) do
+    local x, y = tonumber(pa[i]) or 0, tonumber(pb[i]) or 0
+    if x ~= y then return x > y end
+  end
+  return false
+end
+
+---------------------------------------------------------------------------
+-- Événements : chaque fichier s'abonne avec ns.On(événement, fonction).
+-- Les événements absents de ce client sont ignorés sans erreur.
+---------------------------------------------------------------------------
+
+local frame = CreateFrame("Frame")
+local handlers = {}
+
+function ns.On(event, fn)
+  if not handlers[event] then
+    handlers[event] = {}
+    pcall(frame.RegisterEvent, frame, event)
+  end
+  table.insert(handlers[event], fn)
+end
+
+frame:SetScript("OnEvent", function(_, event, ...)
+  for _, fn in ipairs(handlers[event] or {}) do
+    local ok, err = pcall(fn, ...)
+    if not ok and ns.debug then ns.Print("erreur", event, err) end
+  end
+end)
+
+---------------------------------------------------------------------------
+-- Base de données
+---------------------------------------------------------------------------
+
+local db
+
+function ns.DB() return db end
+
+function ns.GuildDB()
+  if not db or not IsInGuild() then return nil end
+  local gName = GetGuildInfo("player")
+  if not gName then return nil end
+  local key = gName .. "-" .. ns.RealmName()
+  db.guilds[key] = db.guilds[key] or { members = {} }
+  local g = db.guilds[key]
+  g.name = gName
+  g.realm = ns.RealmName()
+  g.members = g.members or {}
+  g.info = g.info or {}
+  return g
+end
+
+function ns.Member(g, name)
+  g.members[name] = g.members[name] or {}
+  local m = g.members[name]
+  m.name = name
+  return m
+end
+
+-- Fiche du joueur local (dans la guilde courante).
+function ns.SelfRecord()
+  local g = ns.GuildDB()
+  if not g then return nil end
+  local m = ns.Member(g, ns.PlayerName())
+  m.profile = m.profile or {}
+  m.hashes = m.hashes or {}
+  return m, g
+end
+
+-- Le joueur collecte-t-il les fiches des autres ? Oui pour les officiers
+-- (ils ont l'uploader), ou si activé avec /gs collecteur.
+function ns.IsCollector()
+  if db and db.collector ~= nil then return db.collector end
+  return (C_GuildInfo and C_GuildInfo.CanViewOfficerNote and C_GuildInfo.CanViewOfficerNote())
+    or (CanViewOfficerNote and CanViewOfficerNote()) or false
+end
+
+ns.On("ADDON_LOADED", function(name)
+  if name ~= ADDON then return end
+  GuildScribeDB = GuildScribeDB or {}
+  db = GuildScribeDB
+  db.schema = SCHEMA
+  db.guilds = db.guilds or {}
+  db.addonVersion = ns.VERSION
+end)
+
+---------------------------------------------------------------------------
+-- 1. Scan du roster
+---------------------------------------------------------------------------
 
 local function requestRoster()
   if C_GuildInfo and C_GuildInfo.GuildRoster then
@@ -68,56 +183,24 @@ local function requestRoster()
   end
 end
 
-local function sendAddon(msg)
-  if not IsInGuild() then return end
-  local send = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
-  if send then send(PREFIX, msg, "GUILD") end
-end
-
----------------------------------------------------------------------------
--- Base de données
----------------------------------------------------------------------------
-
-local function guildDB()
-  if not IsInGuild() then return nil end
-  local gName = GetGuildInfo("player")
-  if not gName then return nil end
-  guildKey = gName .. "-" .. realmName()
-  db.guilds[guildKey] = db.guilds[guildKey] or { members = {} }
-  local g = db.guilds[guildKey]
-  g.name = gName
-  g.realm = realmName()
-  g.members = g.members or {}
-  return g
-end
-ns.GuildDB = guildDB
-
-local function memberRecord(g, name)
-  g.members[name] = g.members[name] or {}
-  return g.members[name]
-end
-
----------------------------------------------------------------------------
--- 1. Scan du roster
----------------------------------------------------------------------------
-
 local function scanRoster()
-  local g = guildDB()
+  local g = ns.GuildDB()
   if not g then return end
 
-  local canOfficer = C_GuildInfo and C_GuildInfo.CanViewOfficerNote and C_GuildInfo.CanViewOfficerNote()
+  local canOfficer = (C_GuildInfo and C_GuildInfo.CanViewOfficerNote and C_GuildInfo.CanViewOfficerNote())
+    or (CanViewOfficerNote and CanViewOfficerNote())
   local total, online = GetNumGuildMembers()
   local seen = {}
+  local now = ns.Now()
 
-  for i = 1, total do
+  for i = 1, total or 0 do
     local name, rankName, rankIndex, level, classDisplayName, zone, publicNote, officerNote,
-          isOnline, status, classFile, achievementPoints, _, isMobile, _, repStanding, guid =
+          isOnline, status, classFile, achievementPoints, achievementRank, isMobile, _, repStanding, guid =
           GetGuildRosterInfo(i)
     if name then
-      name = fullName(name)
+      name = ns.FullName(name)
       seen[name] = true
-      local m = memberRecord(g, name)
-      m.name = name
+      local m = ns.Member(g, name)
       m.guid = guid
       m.rank = rankName
       m.rankIndex = rankIndex
@@ -131,20 +214,22 @@ local function scanRoster()
       m.mobile = isMobile and true or false
       m.status = status
       m.achievementPoints = achievementPoints
+      m.achievementRank = achievementRank
       m.guildRep = repStanding
 
       if isOnline then
-        m.lastOnline = now()
+        m.lastOnline = now
       elseif GetGuildRosterLastOnline then
         local y, mo, d, h = GetGuildRosterLastOnline(i)
         if y then
           -- Approximation : 1 an = 365 j, 1 mois = 30 j.
           local hoursAgo = (((y or 0) * 365 + (mo or 0) * 30 + (d or 0)) * 24) + (h or 0)
-          m.lastOnline = now() - hoursAgo * 3600
+          m.lastOnline = now - hoursAgo * 3600
         end
       end
       m.inGuild = true
-      m.rosterSeenAt = now()
+      m.leftAt = nil
+      m.rosterSeenAt = now
     end
   end
 
@@ -152,23 +237,26 @@ local function scanRoster()
   for name, m in pairs(g.members) do
     if not seen[name] and m.inGuild then
       m.inGuild = false
-      m.leftAt = now()
+      m.leftAt = now
     end
   end
 
-  g.info = g.info or {}
-  g.info.motd = GetGuildRosterMOTD and GetGuildRosterMOTD() or nil
-  g.info.text = GetGuildInfoText and GetGuildInfoText() or nil
+  g.info.motd = ns.Safe(GetGuildRosterMOTD)
+  g.info.text = ns.Safe(GetGuildInfoText)
   g.info.numMembers = total
   g.info.numOnline = online
+  local _, _, _, guildRealm = ns.Safe(GetGuildInfo, "player")
+  g.info.guildRealm = guildRealm
+  local fName, _, standingID, barMin, barMax, barValue = ns.Safe(GetGuildFactionInfo)
+  if fName then g.info.reputation = { at = now, standing = standingID, value = barValue, min = barMin, max = barMax } end
   g.ranks = {}
   if GuildControlGetNumRanks then
     for r = 1, GuildControlGetNumRanks() do
       g.ranks[r] = GuildControlGetRankName(r)
     end
   end
-  g.scannedAt = now()
-  g.scannedBy = playerFullName()
+  g.scannedAt = now
+  g.scannedBy = ns.PlayerName()
 end
 
 ---------------------------------------------------------------------------
@@ -176,10 +264,9 @@ end
 ---------------------------------------------------------------------------
 
 local function scanGuildTradeSkills()
-  local g = guildDB()
+  local g = ns.GuildDB()
   if not g or not GetNumGuildTradeSkill or not GetGuildTradeSkillInfo then return end
 
-  -- On déplie toutes les catégories pour voir tous les artisans.
   if ExpandGuildTradeSkillHeader then
     for i = 1, GetNumGuildTradeSkill() do
       local skillID, isCollapsed, _, headerName = GetGuildTradeSkillInfo(i)
@@ -194,230 +281,75 @@ local function scanGuildTradeSkills()
     if headerName then
       currentSkillID, currentName = skillID, headerName
     elseif currentSkillID and (playerFullName_ or playerName) then
-      local m = memberRecord(g, fullName(playerFullName_ or playerName))
+      local m = ns.Member(g, ns.FullName(playerFullName_ or playerName))
       m.guildProfessions = m.guildProfessions or {}
-      m.guildProfessions[tostring(currentSkillID)] = { id = currentSkillID, name = currentName, skill = skill, seenAt = now() }
+      m.guildProfessions[tostring(currentSkillID)] = { id = currentSkillID, name = currentName, skill = skill, seenAt = ns.Now() }
     end
   end
 end
 
 ---------------------------------------------------------------------------
--- 2. Fiche du joueur local
+-- 1c. Banque de guilde (si ce client en a une) : lue quand on l'ouvre.
 ---------------------------------------------------------------------------
 
-local SLOTS = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 }
+local function itemIdFromLink(link)
+  return link and tonumber(link:match("item:(%d+)"))
+end
+ns.ItemIdFromLink = itemIdFromLink
 
-local function collectProfessions()
-  local profs = {}
-  if GetProfessions and GetProfessionInfo then
-    local list = { GetProfessions() }
-    for _, idx in pairs(list) do
-      if idx then
-        local name, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(idx)
-        if name then
-          profs[#profs + 1] = { id = skillLine or 0, name = name, skill = rank or 0, max = maxRank or 0 }
+local function scanGuildBank()
+  local g = ns.GuildDB()
+  if not g or not GetNumGuildBankTabs then return end
+  local bank = { at = ns.Now(), money = ns.Safe(GetGuildBankMoney), tabs = {} }
+  local perTab = MAX_GUILDBANK_SLOTS_PER_TAB or 98
+  for tab = 1, GetNumGuildBankTabs() or 0 do
+    local name, icon, isViewable = ns.Safe(GetGuildBankTabInfo, tab)
+    local t = { name = name, viewable = isViewable and true or false, items = {} }
+    if isViewable then
+      local counts = {}
+      for slot = 1, perTab do
+        local link = ns.Safe(GetGuildBankItemLink, tab, slot)
+        local id = itemIdFromLink(link)
+        if id then
+          local _, count = ns.Safe(GetGuildBankItemInfo, tab, slot)
+          if not counts[id] then
+            counts[id] = { i = id, c = 0, n = link:match("%[(.-)%]") }
+            t.items[#t.items + 1] = counts[id]
+          end
+          counts[id].c = counts[id].c + (count or 1)
         end
       end
     end
-  elseif GetNumSkillLines and GetSkillLineInfo then
-    -- Repli style Classic : on lit la liste des compétences.
-    local section
-    for i = 1, GetNumSkillLines() do
-      local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
-      if isHeader then
-        section = name
-      elseif section == (TRADE_SKILLS or "Professions") or section == (SECONDARY_SKILLS or "Secondary Skills") then
-        profs[#profs + 1] = { id = 0, name = name, skill = rank or 0, max = maxRank or 0 }
-      end
-    end
+    bank.tabs[#bank.tabs + 1] = t
   end
-  return profs
+  g.info.bank = bank
 end
 
-local function collectGear()
-  local gear = {}
-  for _, slot in ipairs(SLOTS) do
-    local id = GetInventoryItemID("player", slot)
-    gear[#gear + 1] = id or 0
+ns.On("GUILDBANKFRAME_OPENED", function()
+  if GetNumGuildBankTabs and QueryGuildBankTab then
+    for tab = 1, GetNumGuildBankTabs() or 0 do ns.Safe(QueryGuildBankTab, tab) end
   end
-  return gear
-end
-
-local function collectSelf()
-  local _, race = UnitRace("player")
-  local _, classFile = UnitClass("player")
-  local _, ilvlEquipped
-  if GetAverageItemLevel then _, ilvlEquipped = GetAverageItemLevel() end
-  local spec
-  if GetSpecialization and GetSpecializationInfo then
-    local s = GetSpecialization()
-    if s then spec = select(2, GetSpecializationInfo(s)) end
-  end
-  local faction = UnitFactionGroup("player")
-  return {
-    name = playerFullName(),
-    level = UnitLevel("player"),
-    race = race,
-    class = classFile,
-    sex = UnitSex("player"),
-    faction = faction,
-    ilvl = ilvlEquipped and math.floor(ilvlEquipped * 10 + 0.5) / 10 or nil,
-    spec = spec,
-    professions = collectProfessions(),
-    gear = collectGear(),
-    addonVersion = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version") or nil,
-  }
-end
-
-local function applyProfile(name, p)
-  local g = guildDB()
-  if not g then return end
-  local m = memberRecord(g, name)
-  m.name = name
-  m.profile = p
-  m.profileAt = now()
-end
+  ns.Debounce("gbank", 2, scanGuildBank)
+end)
+ns.On("GUILDBANKBAGSLOTS_CHANGED", function() ns.Debounce("gbank", 2, scanGuildBank) end)
 
 ---------------------------------------------------------------------------
--- 3. Protocole d'échange entre add-ons
---   P~proto~level~race~class~sex~faction~ilvl~spec~version
---   R~proto~id:nom:skill:max;id:nom:skill:max
---   G~proto~id,id,id,... (19 emplacements)
---   Q~proto            (demande : tout le monde renvoie sa fiche)
+-- Planification
 ---------------------------------------------------------------------------
 
-local function broadcastSelf(force)
-  if not IsInGuild() then return end
-  if not force and now() - lastBroadcast < 30 then return end
-  lastBroadcast = now()
-
-  local p = collectSelf()
-  applyProfile(p.name, p)
-
-  sendAddon(table.concat({ "P", PROTO, p.level or "", clean(p.race), clean(p.class), p.sex or "",
-    clean(p.faction), p.ilvl or "", clean(p.spec), clean(p.addonVersion) }, "~"))
-
-  local pr = {}
-  for _, x in ipairs(p.professions) do
-    pr[#pr + 1] = table.concat({ x.id, clean(x.name), x.skill, x.max }, ":")
-  end
-  sendAddon("R~" .. PROTO .. "~" .. table.concat(pr, ";"))
-  sendAddon("G~" .. PROTO .. "~" .. table.concat(p.gear, ","))
-end
-ns.BroadcastSelf = broadcastSelf
-
-local function onAddonMessage(prefix, msg, channel, sender)
-  if prefix ~= PREFIX or channel ~= "GUILD" then return end
-  sender = fullName(sender)
-  local parts = split(msg, "~")
-  local kind, proto = parts[1], tonumber(parts[2])
-  if not proto or proto > PROTO then return end
-
-  if kind == "Q" then
-    if sender ~= playerFullName() then
-      -- Délai aléatoire pour ne pas que toute la guilde réponde en même temps.
-      after(1 + math.random() * 8, function() broadcastSelf(true) end)
-    end
-    return
-  end
-  if sender == playerFullName() then return end
-
-  local g = guildDB()
-  if not g then return end
-  local m = memberRecord(g, sender)
-  m.name = sender
-  m.profile = m.profile or {}
-  local p = m.profile
-
-  if kind == "P" then
-    p.name = sender
-    p.level = tonumber(parts[3])
-    p.race = parts[4]
-    p.class = parts[5]
-    p.sex = tonumber(parts[6])
-    p.faction = parts[7]
-    p.ilvl = tonumber(parts[8])
-    p.spec = parts[9] ~= "" and parts[9] or nil
-    p.addonVersion = parts[10]
-  elseif kind == "R" then
-    p.professions = {}
-    for _, entry in ipairs(split(parts[3] or "", ";")) do
-      local f = split(entry, ":")
-      if f[2] then
-        p.professions[#p.professions + 1] = { id = tonumber(f[1]) or 0, name = f[2], skill = tonumber(f[3]) or 0, max = tonumber(f[4]) or 0 }
-      end
-    end
-  elseif kind == "G" then
-    p.gear = {}
-    for _, id in ipairs(split(parts[3] or "", ",")) do
-      p.gear[#p.gear + 1] = tonumber(id) or 0
-    end
-  end
-  m.profileAt = now()
-end
-
-local function requestAll()
-  sendAddon("Q~" .. PROTO)
-  broadcastSelf(true)
-end
-ns.RequestAll = requestAll
-
----------------------------------------------------------------------------
--- Événements
----------------------------------------------------------------------------
-
-local function scheduleRosterScan()
-  if pendingRoster then return end
-  pendingRoster = true
-  after(2, function()
-    pendingRoster = false
-    scanRoster()
-    scanGuildTradeSkills()
-  end)
-end
-ns.ScanNow = function()
+function ns.ScanNow()
   requestRoster()
-  if QueryGuildRecipes then QueryGuildRecipes() end
+  if QueryGuildRecipes then ns.Safe(QueryGuildRecipes) end
   scanRoster()
   scanGuildTradeSkills()
 end
 
-frame:SetScript("OnEvent", function(_, event, ...)
-  if event == "ADDON_LOADED" then
-    if ... ~= ADDON then return end
-    GuildScribeDB = GuildScribeDB or {}
-    db = GuildScribeDB
-    db.schema = SCHEMA
-    db.guilds = db.guilds or {}
-    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
-      C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-    end
-  elseif event == "PLAYER_ENTERING_WORLD" then
-    local isLogin, isReload = ...
-    if isLogin or isReload then
-      after(8, function()
-        if not IsInGuild() then return end
-        ns.ScanNow()
-        broadcastSelf(true)
-      end)
-    end
-  elseif event == "GUILD_ROSTER_UPDATE" or event == "GUILD_TRADESKILL_UPDATE" then
-    scheduleRosterScan()
-  elseif event == "CHAT_MSG_ADDON" then
-    onAddonMessage(...)
-  elseif event == "PLAYER_LEVEL_UP" or event == "SKILL_LINES_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then
-    after(3, function() broadcastSelf(false) end)
-  elseif event == "PLAYER_LOGOUT" then
-    if IsInGuild() then
-      local p = collectSelf()
-      applyProfile(p.name, p)
-    end
-  end
+ns.On("GUILD_ROSTER_UPDATE", function()
+  ns.Debounce("roster", 2, function() scanRoster() scanGuildTradeSkills() end)
 end)
-
-for _, e in ipairs({ "ADDON_LOADED", "PLAYER_ENTERING_WORLD", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON",
-  "PLAYER_LEVEL_UP", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LOGOUT" }) do
-  frame:RegisterEvent(e)
-end
--- Cet événement n'existe peut-être pas sur tous les clients.
-pcall(frame.RegisterEvent, frame, "GUILD_TRADESKILL_UPDATE")
+ns.On("GUILD_TRADESKILL_UPDATE", function()
+  ns.Debounce("roster", 2, function() scanRoster() scanGuildTradeSkills() end)
+end)
+ns.On("PLAYER_GUILD_UPDATE", function()
+  ns.Debounce("roster", 2, function() scanRoster() end)
+end)

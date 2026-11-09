@@ -53,17 +53,26 @@
   // La fiche add-on existe en deux formats : 0.1 (champs à plat) et 0.2+ (sections).
   const prof = (m) => m.profile || {};
   const core = (m) => prof(m).core || prof(m);
+  // Métiers connus, avec leur source et leur date (pour dire d'où vient l'info).
   function professions(m) {
     const out = new Map();
     for (const p of asList(m.guild_professions)) {
-      if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null });
+      if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null, src: "annuaire de guilde", at: p.seenAt || null });
     }
     const pr = prof(m).professions;
+    const at = (pr && pr.at) || (m.profile_at ? new Date(m.profile_at).getTime() / 1000 : null);
     for (const p of asList(pr && pr.list ? pr.list : pr)) {
-      if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null });
+      if (p && p.name) out.set(p.name, { name: p.name, skill: p.skill || 0, max: p.max || null, src: "fiche add-on", at });
     }
     return [...out.values()];
   }
+  // Les métiers sont-ils connus ? (add-on installé, ou présent dans l'annuaire de guilde)
+  const profsKnown = (m) => hasAddon(m) || asList(m.guild_professions).length > 0;
+  const OLD_DAYS = 30;
+  const isOld = (at) => at && Date.now() / 1000 - at > OLD_DAYS * 86400;
+  const NO_ADDON = "Inconnu : ce membre n'a pas l'add-on GuildScribe";
+  const unk = (why) => `<span class="unk" title="${esc(why || NO_ADDON)}">?</span>`;
+  const profTitle = (p) => `${p.name} ${p.skill}${p.max ? "/" + p.max : ""} · ${p.src}${p.at ? ", " + ago(p.at * 1000) : ""}`;
   function gearItems(m) {
     const g = prof(m).gear;
     if (g && g.items) return asList(g.items).filter((x) => x && x.id);
@@ -362,8 +371,10 @@
         <td class="num">${esc(m.level ?? "")}</td>
         <td>${esc(className(m))}</td>
         <td>${esc(m.rank || "")}</td>
-        <td>${professions(m).map((p) => `<span class="prof-chip">${esc(p.name)} ${esc(p.skill)}</span>`).join("")}</td>
-        <td class="num">${esc(ilvl(m) ?? "")}</td>
+        <td>${!profsKnown(m) ? unk() : professions(m).length
+          ? professions(m).map((p) => `<span class="prof-chip${isOld(p.at) ? " old" : ""}" title="${esc(profTitle(p))}">${esc(p.name)} <strong>${esc(p.skill)}</strong></span>`).join("")
+          : '<span class="muted small">aucun</span>'}</td>
+        <td class="num">${ilvl(m) != null ? esc(ilvl(m)) : unk(hasAddon(m) ? "Non fourni par le jeu" : NO_ADDON)}</td>
         <td>${esc(m.zone || "")}</td>
         <td>${m.online ? "en ligne" : esc(ago(m.last_online))}</td>
       </tr>`).join("") : `<tr><td colspan="8" class="empty">Personne ne correspond à ces filtres.</td></tr>`;
@@ -384,14 +395,21 @@
       const cap = Math.max(300, ...list.map((x) => x.p.max || x.p.skill || 0));
       return `<div class="prof-card"><h3>${esc(name)} <span>${list.length} artisan(s)</span></h3>
         ${list.map(({ m, p }) => `
-          <div class="crafter" data-name="${esc(m.name)}">
+          <div class="crafter${isOld(p.at) ? " old" : ""}" data-name="${esc(m.name)}" title="${esc(profTitle(p))}">
             <span class="cname" style="color:${classColor(m.class)}">${esc(shortName(m.name))}${m.online ? ' <span class="dot on"></span>' : ""}</span>
             <span class="muted">${esc(p.skill)}${p.max ? " / " + esc(p.max) : ""}</span>
             <div class="bar"><i style="width:${Math.min(100, (p.skill / cap) * 100)}%"></i></div>
           </div>`).join("")}</div>`;
     });
+    // Membres dont on ne connaît pas les métiers : on le dit, plutôt que de les oublier.
+    const unknown = guildMembers(false).filter((m) => !profsKnown(m)).sort((a, b) => (b.level || 0) - (a.level || 0));
+    if (unknown.length) {
+      cards.push(`<div class="prof-card unknown-card"><h3>Métiers inconnus <span>${unknown.length} membre(s)</span></h3>
+        <p class="muted small">Ces membres n'ont pas l'add-on : leurs métiers n'apparaissent dans aucune carte.</p>
+        <div class="chips">${unknown.map((m) => `<span class="crafter-chip" data-name="${esc(m.name)}" style="color:${classColor(m.class)}">${esc(shortName(m.name))} <span class="muted small">${esc(m.level ?? "")}</span></span>`).join("")}</div></div>`);
+    }
     $("#profs-grid").innerHTML = cards.join("") || `<p class="empty">Aucun métier connu pour l'instant : il faut que des membres installent l'add-on.</p>`;
-    $("#profs-grid").querySelectorAll(".crafter").forEach((el) => (el.onclick = () => openMember(el.dataset.name)));
+    $("#profs-grid").querySelectorAll("[data-name]").forEach((el) => (el.onclick = () => openMember(el.dataset.name)));
   }
 
   // Recherche de recettes : "qui sait fabriquer X ?"
@@ -486,7 +504,11 @@
     if (!m) return;
     const p = prof(m), c = core(m);
     const kv = (rows) => `<dl class="kv">${rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
-    const sec = (title, body, when) => (body ? `<section><h4>${esc(title)}${typeof when === "number" ? ` <span class="when">${esc(ago(when * 1000))}</span>` : ""}</h4>${body}</section>` : "");
+    // missing : texte affiché quand la section est vide, pour dire pourquoi on ne sait pas.
+    const sec = (title, body, when, missing) => (body || missing ? `<section><h4>${esc(title)}${typeof when === "number" ? ` <span class="when${isOld(when) ? " stale" : ""}">${esc(ago(when * 1000))}</span>` : ""}</h4>${body || `<p class="unk-note">${esc(missing)}</p>`}</section>` : "");
+    const addon = hasAddon(m), v2 = !!p.core;
+    const why = !addon ? NO_ADDON : !v2 ? "Inconnu : ce membre a une ancienne version de l'add-on (0.1)" : "Non fourni par le jeu";
+    const orUnk = (v) => (v != null && v !== "" ? esc(v) : unk(why));
     const fold = (summary, body) => `<details><summary>${summary}</summary>${body}</details>`;
     const officerNote = S.notes[m.guild_key + "|" + m.name];
     const now = Date.now() / 1000;
@@ -577,28 +599,29 @@
         ["Statut", m.online ? '<span class="dot on"></span>en ligne' : esc(ago(m.last_online))],
         ["Zone", esc(m.zone)],
         ["Royaume", esc(m.name.split("-")[1])],
-        ["Faction", esc(c.faction)],
-        ["Niveau d'objet", esc(c.ilvl)],
+        ["Faction", orUnk(c.faction)],
+        ["Niveau d'objet", orUnk(c.ilvl)],
         ["Expérience", c.xpMax && m.level ? esc(`${Math.round((c.xp / c.xpMax) * 100)} %${c.rested ? " (+ " + Math.round((c.rested / c.xpMax) * 100) + " % reposé)" : ""}`) : null],
         ["Pierre de foyer", esc(c.bind)],
         ["Hauts faits", esc(m.achievement_points || c.achievementPoints)],
         ["Quêtes terminées", quests && quests.count ? esc(quests.count) : null],
-        ["Fiche add-on", hasAddon(m) ? esc(fmtDate(m.profile_at)) + (p.addonVersion ? ` <span class="muted small">v${esc(p.addonVersion)}</span>` : "") : "non installé"],
+        ["Fiche add-on", addon ? `<span class="${isOld(new Date(m.profile_at).getTime() / 1000) ? "warn" : ""}">${esc(fmtDate(m.profile_at))}</span>` + (p.addonVersion ? ` <span class="muted small">v${esc(p.addonVersion)}</span>` : "") : `<span class="unk-text">non installé : seules les infos du roster de guilde sont connues</span>`],
         m.in_guild ? [] : ["A quitté la guilde", esc(fmtDate(m.left_at))],
       ])}</section>
       ${m.public_note ? `<section><h4>Note publique</h4><div class="note">${esc(m.public_note)}</div></section>` : ""}
       ${officerNote ? `<section><h4>Note d'officier</h4><div class="note officer">${esc(officerNote)}</div></section>` : ""}
-      ${sec("Équipement", gearHtml, p.gear && p.gear.at)}
-      ${sec("Talents", talHtml, tal && tal.at)}
-      ${sec("Métiers", profHtml)}
-      ${sec("Recettes", recipesHtml, p.recipes && p.recipes.at)}
-      ${sec("Statistiques", statsHtml, st && st.at)}
-      ${sec("Raids et donjons verrouillés", lockHtml)}
+      ${sec("Équipement", gearHtml, p.gear && p.gear.at, why)}
+      ${sec("Métiers", profHtml, null, profsKnown(m) ? "Aucun métier" : NO_ADDON)}
+      ${addon ? `
+      ${sec("Talents", talHtml, tal && tal.at, why)}
+      ${sec("Recettes", recipesHtml, p.recipes && p.recipes.at, v2 ? "Pas encore lues : il faut ouvrir une fois la fenêtre de chaque métier en jeu." : why)}
+      ${sec("Statistiques", statsHtml, st && st.at, why)}
+      ${sec("Raids et donjons verrouillés", lockHtml, null, p.lockouts ? "Aucun verrouillage en cours" : why)}
       ${sec("JcJ", pvpHtml)}
-      ${sec("Réputations", repHtml)}
+      ${sec("Réputations", repHtml, null, why)}
       ${sec("Compétences", skillHtml)}
       ${sec("Collections", collHtml)}
-      ${sec("Sacs et banque", invHtml)}
+      ${sec("Sacs et banque", invHtml, null, v2 ? "Inconnus : envoyés seulement par l'appli GuildScribe du membre (kit d'installation)." : why)}` : ""}
     `;
     show($("#drawer"));
     refreshWowhead();

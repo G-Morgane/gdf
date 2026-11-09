@@ -73,7 +73,14 @@ window.GS_DEMO = function () {
   full(members[0], {
     title: "Défenseur",
     gear: [
-      { slot: 1, id: 16921, n: "Auréole de transcendance", q: 4, l: 76, e: 2588 }, { slot: 3, id: 16924, n: "Spallières de transcendance", q: 4, l: 76 },
+      { slot: 1, id: 16921, n: "Auréole de transcendance", q: 4, l: 76, e: 2588, tt: [
+        { t: "Lié quand ramassé" }, { t: "Tête", r: "Tissu" }, { t: "102 Armure" },
+        { t: "+17 Endurance" }, { t: "+27 Intelligence" }, { t: "+22 Esprit" }, { t: "+10 Résistance à l'Ombre" },
+        { t: "+8 Intelligence (enchantement)", c: "1eff00" },
+        { t: "Équipé : Augmente les soins prodigués de 48 au maximum.", c: "1eff00" },
+        { t: "Vêtements de transcendance (2/8)", c: "ffd100" },
+        { t: "(3) Ensemble : Augmente vos chances de toucher avec vos sorts de 1 %.", c: "808080" },
+      ] }, { slot: 3, id: 16924, n: "Spallières de transcendance", q: 4, l: 76 },
       { slot: 5, id: 16923, n: "Robe de transcendance", q: 4, l: 76, e: 1891 }, { slot: 16, id: 17103, n: "Lame d'Azuregos", q: 4, l: 70, dur: 22 },
       { slot: 13, id: 19395, n: "Ecaille-de-rêve", q: 4, l: 77 },
     ],

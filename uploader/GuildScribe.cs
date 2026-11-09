@@ -529,7 +529,7 @@ namespace GuildScribe
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Method = "POST";
             req.ContentType = "application/json; charset=utf-8";
-            req.UserAgent = "GuildScribe/0.2";
+            req.UserAgent = "GuildScribe/0.3";
             req.Timeout = 60000;
             req.Headers["apikey"] = key;
             // Anciennes clés (JWT "eyJ...") : aussi en Bearer. Nouvelles clés sb_publishable_ : apikey seul.

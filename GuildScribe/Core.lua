@@ -313,7 +313,9 @@ local function scanGuildBank()
         if id then
           local _, count = ns.Safe(GetGuildBankItemInfo, tab, slot)
           if not counts[id] then
-            counts[id] = { i = id, c = 0, n = link:match("%[(.-)%]") }
+            counts[id] = { i = id, c = 0, n = link:match("%[(.-)%]"),
+              q = (select(3, ns.Safe(GetItemInfo, link))),
+              tt = ns.ReadTooltip and ns.ReadTooltip("SetGuildBankItem", tab, slot) or nil }
             t.items[#t.items + 1] = counts[id]
           end
           counts[id].c = counts[id].c + (count or 1)

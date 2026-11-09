@@ -40,6 +40,52 @@ local function itemQuality(link)
 end
 
 ---------------------------------------------------------------------------
+-- Infobulle d'un objet, lue ligne par ligne dans une infobulle invisible :
+-- c'est exactement ce que le joueur voit en jeu (stats, effets, bonus de
+-- set...), y compris pour les objets propres à WoW Forever.
+---------------------------------------------------------------------------
+
+local tip
+local durabilityPattern = "^" .. (DURABILITY_TEMPLATE or "Durability %d / %d"):gsub("%%d", "%%d+") .. "$"
+
+local function cleanText(s)
+  if not s then return nil end
+  s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|A.-|a", "")
+  s = s:gsub("^%s+", ""):gsub("%s+$", "")
+  return s
+end
+
+-- setter : nom de la méthode de GameTooltip (SetInventoryItem, SetBagItem...).
+local function readTooltip(setter, ...)
+  if not tip then
+    tip = CreateFrame("GameTooltip", "GuildScribeTip", nil, "GameTooltipTemplate")
+  end
+  if not tip[setter] then return nil end
+  tip:SetOwner(WorldFrame, "ANCHOR_NONE")
+  tip:ClearLines()
+  if not pcall(tip[setter], tip, ...) then tip:Hide() return nil end
+  local lines = {}
+  for i = 2, math.min(tip:NumLines() or 0, 40) do
+    local L, R = _G["GuildScribeTipTextLeft" .. i], _G["GuildScribeTipTextRight" .. i]
+    local lt = L and cleanText(L:GetText())
+    if lt and lt ~= "" and not lt:match(durabilityPattern) then
+      local e = { t = lt }
+      local rt = R and R:IsShown() and cleanText(R:GetText())
+      if rt and rt ~= "" then e.r = rt end
+      local r, g, b = L:GetTextColor()
+      if r then
+        local hex = string.format("%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+        if hex ~= "ffffff" then e.c = hex end
+      end
+      lines[#lines + 1] = e
+    end
+  end
+  tip:Hide()
+  return #lines > 0 and lines or nil
+end
+ns.ReadTooltip = readTooltip
+
+---------------------------------------------------------------------------
 -- Collecteurs
 ---------------------------------------------------------------------------
 
@@ -98,7 +144,6 @@ function C.gear()
         local gem = tonumber(f[k])
         if gem and gem > 0 then gems[#gems + 1] = gem end
       end
-      local cur, max = Safe(GetInventoryItemDurability, slot)
       items[#items + 1] = {
         slot = slot,
         id = id,
@@ -109,7 +154,7 @@ function C.gear()
         e = tonumber(f[3]) ~= 0 and tonumber(f[3]) or nil,   -- enchantement
         gems = #gems > 0 and gems or nil,
         sfx = tonumber(f[8]) ~= 0 and tonumber(f[8]) or nil,  -- suffixe ("de l'aigle"...)
-        dur = cur and max and max > 0 and round(cur / max * 100, 0) or nil,
+        tt = readTooltip("SetInventoryItem", "player", slot),
       }
     end
   end
@@ -231,6 +276,17 @@ function C.stats()
   local minD, maxD = Safe(UnitDamage, "player")
   st.dmgMin, st.dmgMax = round(minD, 0), round(maxD, 0)
   st.moveSpeed = round((Safe(GetUnitSpeed, "player")))
+  -- Durabilité la plus basse de l'équipement (en %), hors section équipement
+  -- pour ne pas renvoyer toutes les infobulles à chaque combat.
+  local minDur
+  for slot = 1, 19 do
+    local cur, max = Safe(GetInventoryItemDurability, slot)
+    if cur and max and max > 0 then
+      local pct = round(cur / max * 100, 0)
+      if not minDur or pct < minDur then minDur = pct end
+    end
+  end
+  st.durability = minDur
   return st
 end
 
@@ -317,7 +373,14 @@ local function readContainers(bags)
           count = c or 1
         end
         if not byId[id] then
-          byId[id] = { i = id, c = 0, n = linkName(link), q = itemQuality(link) }
+          local tt
+          if bag == (BANK_CONTAINER or -1) then
+            local inv = Safe(BankButtonIDToInvSlotID, slot)
+            if inv then tt = readTooltip("SetInventoryItem", "player", inv) end
+          else
+            tt = readTooltip("SetBagItem", bag, slot)
+          end
+          byId[id] = { i = id, c = 0, n = linkName(link), q = itemQuality(link), tt = tt }
           items[#items + 1] = byId[id]
         end
         byId[id].c = byId[id].c + count

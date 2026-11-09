@@ -2,7 +2,7 @@
 ## Title: GuildScribe
 ## Notes: Collecte les infos de la guilde (roster, niveaux, métiers, recettes, équipement, talents...) pour le site de guilde.
 ## Author: Morgane
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: GuildScribeDB
 
 Json.lua

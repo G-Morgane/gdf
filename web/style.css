@@ -168,6 +168,16 @@ details[open] > summary::before { content: "▾ "; }
 .recipe-list .who { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .crafter-chip { cursor: pointer; }
 .crafter-chip:hover { text-decoration: underline; }
+.item-tt { cursor: help; border-bottom: 1px dotted currentColor; }
+.item-stats { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.gear li { align-items: flex-start; gap: 12px; }
+.item-tip {
+  position: fixed; z-index: 50; max-width: 320px; padding: 8px 10px; pointer-events: none;
+  background: #070b16f2; border: 1px solid #5b6478; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  font-size: 13px; line-height: 1.35; color: #fff;
+}
+.item-tip .tip-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.item-tip .tip-line { display: flex; justify-content: space-between; gap: 16px; }
 .note { background: var(--bg-2); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; }
 .note.officer { border-left: 3px solid var(--gold); }
 

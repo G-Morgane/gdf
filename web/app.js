@@ -4,7 +4,7 @@
 
   const CFG = window.GS_CONFIG || {};
   const DEMO = !CFG.supabaseUrl || !CFG.anonKey || new URLSearchParams(location.search).has("demo");
-  const ITEM_URL = CFG.itemUrl || "https://www.wowhead.com/classic/item=";
+  const ITEM_URL = CFG.itemUrl || "https://www.wowhead.com/classic/fr/item=";
 
   const CLASSES = {
     WARRIOR: ["Guerrier", "#C69B6D"], PALADIN: ["Paladin", "#F48CBA"], HUNTER: ["Chasseur", "#AAD372"],
@@ -83,12 +83,67 @@
   }
   const ilvl = (m) => core(m).ilvl || null;
   const hasAddon = (m) => !!(prof(m).core || prof(m).level);
+  // Objets : si l'add-on a lu l'infobulle en jeu, on l'affiche nous-mêmes
+  // (exacte, même pour les objets propres à Forever). Sinon lien Wowhead,
+  // dont le script ajoute nom, icône et infobulle.
+  const TIPS = [];
   const itemLink = (x, label) => {
-    const href = x.i || x.id ? ITEM_URL + (x.i || x.id) : x.sp ? SPELL_URL + x.sp : null;
+    const id = x.i || x.id;
     const color = x.q != null ? ` style="color:${QUALITY[x.q] || "inherit"}"` : "";
-    const text = esc(label || x.n || (x.i || x.id ? "objet #" + (x.i || x.id) : "sort #" + x.sp));
+    const text = esc(label || x.n || (id ? "objet #" + id : "sort #" + x.sp));
+    if (asList(x.tt).length) {
+      TIPS.push(x);
+      return `<span class="item-tt" tabindex="0" data-tip="${TIPS.length - 1}"${color}>${text}</span>`;
+    }
+    const href = id ? ITEM_URL + id : x.sp ? SPELL_URL + x.sp : null;
     return href ? `<a href="${esc(href)}" target="_blank" rel="noopener"${color}>${text}</a>` : `<span${color}>${text}</span>`;
   };
+  // Lignes de stats (« +12 Endurance », « 85 Armure »...) pour un résumé en ligne.
+  const itemStats = (x) => asList(x.tt).map((l) => l && l.t).filter((t) => t && (/^[+-]\s?\d/.test(t) || /^\d+\s+(d')?armure/i.test(t)));
+  function tipHtml(x) {
+    const lines = asList(x.tt);
+    const hasIlvl = lines.some((l) => /niveau d.objet|item level/i.test(l.t || ""));
+    return `<div class="tip-name" style="color:${QUALITY[x.q] || "#fff"}">${esc(x.n || "Objet")}</div>` +
+      (x.l && !hasIlvl ? `<div style="color:#ffd100">Niveau d'objet ${esc(x.l)}</div>` : "") +
+      lines.map((l) => `<div class="tip-line"${l.c ? ` style="color:#${esc(l.c)}"` : ""}><span>${esc(l.t)}</span>${l.r ? `<span>${esc(l.r)}</span>` : ""}</div>`).join("");
+  }
+  function setupTooltips() {
+    const box = document.createElement("div");
+    box.id = "item-tip";
+    box.className = "item-tip hidden";
+    document.body.appendChild(box);
+    let current = null;
+    const place = (el) => {
+      const r = el.getBoundingClientRect();
+      const w = box.offsetWidth, h = box.offsetHeight;
+      let left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left));
+      let top = r.bottom + 6;
+      if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+      box.style.left = left + "px";
+      box.style.top = top + "px";
+    };
+    const open = (el) => {
+      const x = TIPS[+el.dataset.tip];
+      if (!x) return;
+      current = el;
+      box.innerHTML = tipHtml(x);
+      show(box);
+      place(el);
+    };
+    const close = () => { current = null; show(box, false); };
+    document.addEventListener("mouseover", (e) => {
+      const el = e.target.closest && e.target.closest(".item-tt");
+      if (el && el !== current) open(el);
+      else if (!el && current) close();
+    });
+    document.addEventListener("click", (e) => {
+      const el = e.target.closest && e.target.closest(".item-tt");
+      if (el) { e.stopPropagation(); el === current ? close() : open(el); } else if (current) close();
+    }, true);
+    document.addEventListener("focusin", (e) => { if (e.target.classList && e.target.classList.contains("item-tt")) open(e.target); });
+    window.addEventListener("scroll", close, true);
+  }
+  const refreshWowhead = () => { try { window.$WowheadPower && window.$WowheadPower.refreshLinks(); } catch (e) { /* facultatif */ } };
 
   /* ---------------------------------------------------------------- Auth */
 
@@ -163,6 +218,7 @@
   /* ----------------------------------------------------------------- App */
 
   function startApp() {
+    setupTooltips();
     show($("#loading"), false);
     show($("#login"), false);
     show($("#app"));
@@ -235,6 +291,7 @@
     renderInactive();
     renderBank();
     renderRaids();
+    refreshWowhead();
   }
 
   function setTab(t) {
@@ -421,7 +478,8 @@
     const gear = gearItems(m).sort((a, b) => a.slot - b.slot);
     const gearHtml = gear.length ? `<ul class="gear">${gear.map((x) => `
       <li><span class="muted">${esc(SLOT_NAMES[x.slot] || "Emplacement " + x.slot)}</span>
-        <span>${itemLink(x)}${x.l ? ` <span class="muted small">${esc(x.l)}</span>` : ""}${x.e ? ' <span class="small" title="Enchanté">✦</span>' : ""}${x.dur != null && x.dur < 30 ? ` <span class="warn small" title="Durabilité">${esc(x.dur)} %</span>` : ""}</span></li>`).join("")}</ul>` : "";
+        <span>${itemLink(x)}${x.l ? ` <span class="muted small">${esc(x.l)}</span>` : ""}${x.e ? ' <span class="small" title="Enchanté">✦</span>' : ""}${x.dur != null && x.dur < 30 ? ` <span class="warn small" title="Durabilité">${esc(x.dur)} %</span>` : ""}
+        ${itemStats(x).length ? `<div class="item-stats">${esc(itemStats(x).slice(0, 6).join(" · "))}</div>` : ""}</span></li>`).join("")}</ul>` : "";
 
     const profHtml = professions(m).map((x) => `
       <div class="crafter"><span>${esc(x.name)}</span><span class="muted">${esc(x.skill)}${x.max ? " / " + esc(x.max) : ""}</span>
@@ -446,6 +504,7 @@
       ["For / Agi / End", esc([st.str, st.agi, st.sta].map((v) => v ?? "—").join(" / "))],
       ["Int / Esp", esc([st.int, st.spi].map((v) => v ?? "—").join(" / "))],
       ["Armure", esc(st.armor)],
+      ["Durabilité mini", st.durability != null ? (st.durability < 30 ? `<span class="warn">${esc(st.durability)} %</span>` : esc(st.durability + " %")) : null],
       ["Défense", esc(st.defense)],
       ["Esquive / Parade / Blocage", st.dodge != null ? esc(`${st.dodge} % / ${st.parry ?? 0} % / ${st.block ?? 0} %`) : null],
       ["PA / PA distance", esc([st.ap, st.rap].filter((v) => v != null).join(" / "))],
@@ -526,6 +585,7 @@
       ${sec("Sacs et banque", invHtml)}
     `;
     show($("#drawer"));
+    refreshWowhead();
     $("#drawer").setAttribute("aria-hidden", "false");
   }
 

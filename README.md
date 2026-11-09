@@ -76,6 +76,17 @@ powershell -ExecutionPolicy Bypass -File uploader\Install-Uploader.ps1 -Supabase
 
 Les données arrivent sur le site à chaque **déconnexion** ou `/reload` (c'est le seul moment où WoW écrit le fichier).
 
+## 6. Kit d'installation pour les membres (add-on + uploader en un double-clic)
+
+1. Dans Supabase, crée un jeton commun : `select public.create_upload_token('Membres');`
+2. Fabrique le zip :
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File kit\Build-MemberKit.ps1 -UploadToken <jeton Membres>
+   ```
+3. Partage `GuildScribe-Installateur.zip`. Les membres décompressent et double-cliquent sur `Installer GuildScribe.bat` (voir `kit/LISEZMOI.txt`).
+
+Le jeton commun est lisible dans le zip : s'il fuit, `update upload_tokens set revoked = true where label = 'Membres';`, crée-en un autre et refais le zip. Les officiers gardent un jeton personnel.
+
 ---
 
 ## Données collectées

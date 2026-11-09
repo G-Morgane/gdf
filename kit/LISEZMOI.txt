@@ -1,0 +1,20 @@
+﻿GuildScribe - installation pour les membres de la guilde
+=========================================================
+
+1. Ferme WoW.
+2. Décompresse ce zip n'importe où (clic droit > Extraire tout).
+3. Double-clique sur "Installer GuildScribe.bat".
+   Si Windows affiche "Windows a protégé votre ordinateur" :
+   clique sur "Informations complémentaires" puis "Exécuter quand même".
+4. Lance WoW Forever. À la sélection du perso, bouton AddOns :
+   vérifie que GuildScribe est coché (coche "Charger les add-ons obsolètes" si besoin).
+
+C'est tout. Tes infos (niveau, métiers, équipement) et celles de la guilde
+partent toutes seules vers le site à chaque déconnexion ou /reload.
+Un petit programme invisible tourne pour ça et démarre avec Windows.
+
+Rien n'est envoyé d'autre que les infos de guilde et de tes persos de la guilde :
+pas d'or, pas de compte, pas de mot de passe.
+
+Désinstaller : double-clique sur "Desinstaller GuildScribe.bat".
+Journal en cas de souci : %APPDATA%\GuildScribe\uploader.log

@@ -2,3 +2,4 @@ guild.json
 *.log
 .vercel/
 .claude/
+*.zip

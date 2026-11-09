@@ -4,7 +4,7 @@
 
   const CFG = window.GS_CONFIG || {};
   const DEMO = !CFG.supabaseUrl || !CFG.anonKey || new URLSearchParams(location.search).has("demo");
-  const ITEM_URL = CFG.itemUrl || "https://www.wowhead.com/classic/fr/item=";
+  const ITEM_URL = CFG.itemUrl || "https://www.wowhead.com/forever/fr/item=";
 
   const CLASSES = {
     WARRIOR: ["Guerrier", "#C69B6D"], PALADIN: ["Paladin", "#F48CBA"], HUNTER: ["Chasseur", "#AAD372"],
@@ -143,7 +143,23 @@
     document.addEventListener("focusin", (e) => { if (e.target.classList && e.target.classList.contains("item-tt")) open(e.target); });
     window.addEventListener("scroll", close, true);
   }
-  const refreshWowhead = () => { try { window.$WowheadPower && window.$WowheadPower.refreshLinks(); } catch (e) { /* facultatif */ } };
+  // Wowhead : base WoW Forever d'abord ; un objet qu'elle ne connaît pas
+  // (pas renommé après quelques secondes) repasse sur la base Classic.
+  let whTimer = null;
+  const refreshWowhead = () => {
+    try { window.$WowheadPower && window.$WowheadPower.refreshLinks(); } catch (e) { /* facultatif */ }
+    clearTimeout(whTimer);
+    whTimer = setTimeout(() => {
+      let changed = false;
+      document.querySelectorAll('a[href*="wowhead.com/forever/"]').forEach((a) => {
+        if (!/\bq\d\b|icontiny/.test(a.className)) {
+          a.href = a.href.replace("/forever/", "/classic/");
+          changed = true;
+        }
+      });
+      if (changed) try { window.$WowheadPower && window.$WowheadPower.refreshLinks(); } catch (e) { /* facultatif */ }
+    }, 4000);
+  };
 
   /* ---------------------------------------------------------------- Auth */
 

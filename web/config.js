@@ -3,6 +3,6 @@
 window.GS_CONFIG = {
   supabaseUrl: "https://hjwntbrgynbglxtevxan.supabase.co",
   anonKey: "sb_publishable_tOnS7bKtQp9WxWQaSK2l9w_MDl24Ruq", // Supabase > Project Settings > API > anon / publishable key
-  // Lien d'un objet par son ID (à ajuster si Wowhead ouvre une section WoW Forever).
-  itemUrl: "https://www.wowhead.com/classic/fr/item=",
+  // Lien d'un objet par son ID : base Wowhead WoW Forever (repli automatique sur Classic).
+  itemUrl: "https://www.wowhead.com/forever/fr/item=",
 };

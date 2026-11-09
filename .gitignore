@@ -3,3 +3,4 @@ guild.json
 .vercel/
 .claude/
 *.zip
+*.exe

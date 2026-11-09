@@ -2,16 +2,21 @@
 =========================================================
 
 1. Ferme WoW.
-2. Décompresse ce zip n'importe où (clic droit > Extraire tout).
-3. Double-clique sur "Installer GuildScribe.bat".
+2. Décompresse ce zip (clic droit > Extraire tout). Ne lance pas le
+   programme depuis l'intérieur du zip.
+3. Double-clique sur "GuildScribe.exe" dans le dossier décompressé.
    Si Windows affiche "Windows a protégé votre ordinateur" :
    clique sur "Informations complémentaires" puis "Exécuter quand même".
-4. Lance WoW Forever. À la sélection du perso, bouton AddOns :
-   vérifie que GuildScribe est coché (coche "Charger les add-ons obsolètes" si besoin).
+   (Le programme n'est pas signé : c'est un petit outil fait pour la guilde.)
+4. Un raccourci "WoW Forever + GuildScribe" apparaît sur ton bureau.
+   Lance le jeu avec ce raccourci à partir de maintenant.
+5. En jeu, à la sélection du perso, bouton AddOns : vérifie que GuildScribe
+   est coché (coche "Charger les add-ons obsolètes" si besoin).
 
-C'est tout. Tes infos et celles de la guilde partent toutes seules vers le
-site à chaque déconnexion ou /reload. Un petit programme invisible tourne
-pour ça et démarre avec Windows.
+Pendant que tu joues, une petite icône GuildScribe est visible près de
+l'horloge. Elle envoie tes infos au site à chaque /reload ou déconnexion, puis
+se ferme toute seule quand tu quittes le jeu. Rien ne tourne en dehors du jeu.
+Clic droit sur l'icône : envoyer maintenant, ouvrir le site, voir le journal.
 
 Ce qui est envoyé (persos de la guilde uniquement) : niveau, équipement,
 talents, métiers et recettes (ouvre la fenêtre de ton métier une fois),
@@ -19,5 +24,6 @@ statistiques, réputations, raids verrouillés, JcJ, contenu des sacs et de
 la banque (ouvre ta banque une fois), quêtes terminées.
 Jamais envoyé : ton or, ton compte, ton mot de passe.
 
-Désinstaller : double-clique sur "Desinstaller GuildScribe.bat".
+Mettre à jour : relance GuildScribe.exe depuis un nouveau zip, choisis "Oui".
+Désinstaller : relance GuildScribe.exe, choisis "Non".
 Journal en cas de souci : %APPDATA%\GuildScribe\uploader.log

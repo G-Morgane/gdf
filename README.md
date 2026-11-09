@@ -3,7 +3,7 @@
 ```
 WoW + add-on GuildScribe ──(déconnexion / reload)──► GuildScribe.lua sur le PC
                                                           │
-                              uploader (PowerShell, lancé avec Windows, invisible)
+                              GuildScribe.exe (icône près de l'horloge, lancée avec le jeu)
                                                           │ envoi auto dès que le fichier change
                                                           ▼
                                         Supabase (base + connexion Discord)
@@ -14,7 +14,8 @@ WoW + add-on GuildScribe ──(déconnexion / reload)──► GuildScribe.lua 
 | Dossier | Rôle |
 |---|---|
 | `GuildScribe/` | l'add-on WoW (Interface 16001) |
-| `uploader/` | surveille le fichier de l'add-on et l'envoie à Supabase |
+| `uploader/` | `GuildScribe.cs` : installe l'add-on et envoie son fichier à Supabase |
+| `kit/` | fabrication du zip à partager (`Build-MemberKit.ps1`) |
 | `supabase/schema.sql` | tables, sécurité, fonction d'ingestion |
 | `web/` | le site (HTML/JS sans build) + `api/claim.js` (vérification Discord) |
 
@@ -62,31 +63,28 @@ Règle d'accès : quelqu'un qui est sur le serveur Discord = **membre** ; quelqu
 Sans `config.js` rempli (ou avec `?demo` dans l'URL), le site s'ouvre en **mode démo** avec des données fictives.
 Prévisualisation locale : `powershell -File web/dev-server.ps1` puis http://localhost:8080.
 
-## 5. L'uploader (sur le PC de chaque officier qui joue)
+## 5. GuildScribe.exe : installation et envoi (officiers et membres)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File uploader\Install-Uploader.ps1 -SupabaseUrl https://<ton-projet>.supabase.co -AnonKey <clé anon> -UploadToken <jeton de l'étape 2.3>
-```
-
-- Il trouve WoW tout seul (sinon ajoute `-WowDir "D:\Jeux\World of Warcraft\_forever_"`).
-- Il fait un envoi de test, puis tourne invisible et redémarre avec Windows (raccourci dans le dossier Démarrage, aucun droit admin).
-- Journal : `%APPDATA%\GuildScribe\uploader.log`.
-- Désinstaller : `Install-Uploader.ps1 -Uninstall`.
-- Vérifier ce que contient le fichier sans rien envoyer : `uploader\Export-GuildScribe.ps1 -Out guild.json`.
-
-Les données arrivent sur le site à chaque **déconnexion** ou `/reload` (c'est le seul moment où WoW écrit le fichier).
-
-## 6. Kit d'installation pour les membres (add-on + uploader en un double-clic)
+Un seul programme, `GuildScribe.exe` (source : `uploader/GuildScribe.cs`, compilé avec le compilateur C# fourni avec Windows, rien à installer). Pas de PowerShell caché ni de démarrage avec Windows : les antivirus (Norton, Avast/AVG…) bloquaient ce fonctionnement.
 
 1. Dans Supabase, crée un jeton commun : `select public.create_upload_token('Membres');`
-2. Fabrique le zip :
+2. Fabrique le zip (compile l'exe et y met l'add-on, le jeton et l'adresse du site) :
    ```powershell
    powershell -ExecutionPolicy Bypass -File kit\Build-MemberKit.ps1 -UploadToken <jeton Membres>
    ```
-3. Partage `GuildScribe-Installateur.zip`. Les membres décompressent et double-cliquent sur `Installer GuildScribe.bat` (voir `kit/LISEZMOI.txt`).
+3. Partage `GuildScribe-Installateur.zip`. On décompresse, on double-clique sur `GuildScribe.exe` (voir `kit/LISEZMOI.txt`) :
+   - il trouve WoW Forever (ou demande le dossier), copie l'add-on, s'installe dans `%LOCALAPPDATA%\GuildScribe\app` ;
+   - il crée le raccourci **« WoW Forever + GuildScribe »** sur le bureau (et « GuildScribe » dans le menu Démarrer, sans lancer le jeu).
+4. Ce raccourci lance le jeu et affiche une icône près de l'horloge. Elle envoie le fichier de l'add-on à chaque `/reload` ou déconnexion, puis se ferme 40 s après la fermeture du jeu. Clic droit : envoyer maintenant, ouvrir le site, journal.
 
-Le jeton commun est lisible dans le zip : s'il fuit, `update upload_tokens set revoked = true where label = 'Membres';`, crée-en un autre et refais le zip. Les officiers gardent un jeton personnel.
+- **Officiers** : un jeton personnel déjà présent dans `%APPDATA%\GuildScribe\config.json` est conservé quand on installe le kit membres.
+- Relancer `GuildScribe.exe` du kit : Oui = mettre à jour, Non = désinstaller.
+- Journal : `%APPDATA%\GuildScribe\uploader.log`. Tests : `GuildScribe.exe --once` (un envoi), `GuildScribe.exe --dump GuildScribe.lua sortie.json` (conversion locale sans envoi).
+- Vérifier le contenu du fichier sans rien envoyer : `uploader\Export-GuildScribe.ps1 -Out guild.json`.
 
+Le jeton commun est lisible dans le zip : s'il fuit, `update upload_tokens set revoked = true where label = 'Membres';`, crée-en un autre et refais le zip.
+
+Les données arrivent sur le site à chaque **déconnexion** ou `/reload` (c'est le seul moment où WoW écrit le fichier).
 ---
 
 ## Données collectées

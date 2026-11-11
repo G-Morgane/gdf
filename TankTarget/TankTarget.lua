@@ -202,11 +202,14 @@ end
 -- n'affiche rien).
 local function SetVis(region, v, aTrue, aFalse)
   if IsSecret(v) then
-    local ok = false
+    local ok, err = false, "SetAlphaFromBoolean absent"
     if region.SetAlphaFromBoolean then
-      ok = pcall(region.SetAlphaFromBoolean, region, v, aTrue, aFalse)
+      ok, err = pcall(region.SetAlphaFromBoolean, region, v, aTrue, aFalse)
     end
-    if not ok then region:SetAlpha(0) end
+    if not ok then
+      region:SetAlpha(0)
+      WarnOnce("alpha", "impossible d'appliquer une valeur secrète (signalé une seule fois) : " .. tostring(err))
+    end
   elseif v then
     region:SetAlpha(aTrue)
   else
@@ -222,17 +225,22 @@ end
 ---------------------------------------------------------------------------
 -- Jeux d'icônes (un bouclier numéroté par tank, superposés)
 ---------------------------------------------------------------------------
+-- Chaque bouclier vit dans son propre cadre : c'est le cadre qui reçoit
+-- l'opacité (SetAlphaFromBoolean marche sur les cadres, pas sur les
+-- textures de ce client).
 
 local function NewShield(parent)
-  local icon = parent:CreateTexture(nil, "OVERLAY")
+  local frame = CreateFrame("Frame", nil, parent)
+  frame:SetAllPoints(parent)
+  local icon = frame:CreateTexture(nil, "OVERLAY")
   icon:SetTexture(ICON)
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  icon:Hide()
-  local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   label:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
   label:SetTextColor(1, 1, 1)
   label:Hide()
-  return { icon = icon, label = label }
+  frame:Hide()
+  return { frame = frame, icon = icon, label = label }
 end
 
 -- shields : liste de boucliers ; tests[i] = valeur « le tank i cible ça »
@@ -245,23 +253,20 @@ local function ApplyShields(shields, parent, tests, count, size, anchor, y)
     s.icon:ClearAllPoints()
     s.icon:SetPoint("BOTTOM", anchor, "TOP", 0, y)
     if type(tests[i]) == "nil" then
-      s.icon:Hide()
-      s.label:Hide()
+      s.frame:Hide()
     else
-      s.icon:Show()
-      SetVis(s.icon, tests[i], 1, 0)
+      s.frame:Show()
+      SetVis(s.frame, tests[i], 1, 0)
       if count > 1 then
         s.label:SetText(tostring(i))
         s.label:Show()
-        SetVis(s.label, tests[i], 1, 0)
       else
         s.label:Hide()
       end
     end
   end
   for i = count + 1, #shields do
-    shields[i].icon:Hide()
-    shields[i].label:Hide()
+    shields[i].frame:Hide()
   end
 end
 
@@ -474,8 +479,8 @@ local function DebugTarget()
   local s = w.shields[1]
   local parts = { "debug — barre de nom : cadre visible = " .. tostring(w.holder:IsVisible()) }
   if s then
-    parts[#parts + 1] = "bouclier montré = " .. tostring(s.icon:IsShown())
-      .. ", opacité = " .. ShowValue(Raw(s.icon.GetAlpha, s.icon))
+    parts[#parts + 1] = "bouclier montré = " .. tostring(s.frame:IsShown())
+      .. ", opacité = " .. ShowValue(Raw(s.frame.GetAlpha, s.frame))
   else
     parts[#parts + 1] = "pas de bouclier créé"
   end

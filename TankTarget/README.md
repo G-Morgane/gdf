@@ -1,9 +1,7 @@
 # TankTarget
 
 Petit add-on pour WoW Forever (client 1.60.1, `Interface: 16001`) : un **bouclier**
-s'affiche au-dessus de la barre de nom (nameplate) du monstre que le tank cible
-ou dont il a l'aggro (en combat, le jeu ne dit plus aux add-ons qui le tank cible,
-mais il dit toujours qui a l'aggro).
+s'affiche au-dessus de la barre de nom (nameplate) du monstre que le tank cible.
 Tout le groupe voit ainsi quel mob le tank tient.
 
 - Plusieurs tanks : chaque bouclier porte le numéro du tank (1, 2…).
@@ -34,6 +32,7 @@ Le choix manuel ne sert que si aucun rôle ni Main Tank n'est défini.
 | `/tank effacer` | oublie le choix manuel |
 | `/tank pastille` | active / désactive la pastille rouge |
 | `/tank cadre` | active / désactive le bouclier sur le cadre de cible |
+| `/tank aggro` | bouclier aussi sur tous les monstres dont le tank a l'aggro (désactivé par défaut) |
 | `/tank taille 22` | taille du bouclier (8 à 64) |
 | `/tank hauteur 4` | hauteur du bouclier au-dessus de la barre (-50 à 150) |
 | `/tank debug` | ce que l'add-on voit pour ta cible (à faire en combat, utile si ça ne marche pas) |
@@ -50,3 +49,15 @@ Copier le dossier `TankTarget` dans
 L'add-on ne touche à rien de protégé : il ajoute seulement des textures sur les
 barres de nom ennemies et le cadre de cible. Il fonctionne avec les barres de nom
 d'EllesmereUI (le bouclier est accroché au cadre de base de la barre de nom).
+
+## Limite connue (moteur de WoW Forever)
+
+En combat, le jeu ne répond plus aux add-ons à la question « cette barre de nom
+est-elle la cible du tank ? ». TankTarget essaie alors, dans l'ordre :
+
+1. de demander directement au jeu la barre de nom de la cible du tank ;
+2. pour **ta** cible uniquement : « ma cible = cible du tank ? », à laquelle le jeu
+   répond encore (le bouclier apparaît alors sur la barre de nom de ta cible et sur
+   ton cadre de cible).
+
+`/tank debug` indique ce qui marche sur ton client.

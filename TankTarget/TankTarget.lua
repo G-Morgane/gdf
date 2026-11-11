@@ -31,10 +31,12 @@ local DEFAULTS = {
   targetFrame = true,   -- bouclier sur le cadre de cible
   size = 22,            -- taille du bouclier
   offsetY = 4,          -- décalage vertical au-dessus de la nameplate
+  aggro = false,        -- bouclier aussi sur les monstres dont le tank a l'aggro
 }
 
 local db                -- TankTargetDB une fois chargé
 local tanks = {}        -- { {unit=, name=, source=}, ... }
+local tankPlates = {}   -- tankPlates[i] = nameplate de la cible du tank i, si le jeu la donne
 local activePlates = {} -- unité de nameplate -> true
 local widgets = {}      -- cadre de nameplate -> { holder, icon, label, dot }
 local warned = {}
@@ -375,15 +377,30 @@ local function UpdatePlate(unit)
 
   local count = math.min(#tanks, MAX_TANKS)
   local tests = {}
+  local isMyTarget = Is(UnitIsUnit, unit, "target")
   for i = 1, count do
-    tests[i] = RawB(UnitIsUnit, unit, TargetToken(tanks[i].unit))
+    local tt = TargetToken(tanks[i].unit)
+    local v
+    if tankPlates[i] and tankPlates[i] == plate then
+      -- 1. Le jeu nous a donné directement la nameplate de la cible du tank.
+      v = true
+    else
+      -- 2. Comparaison classique (marche hors combat).
+      v = Raw(UnitIsUnit, unit, tt)
+      -- 3. En combat elle revient vide ; pour TA cible, le jeu répond
+      --    encore (en secret) à « ma cible = cible du tank ? ».
+      if type(v) == "nil" or (not IsSecret(v) and not v) then
+        if isMyTarget then v = Raw(UnitIsUnit, "target", tt) end
+      end
+      if type(v) == "nil" then v = false end
+    end
+    tests[i] = v
   end
   ApplyShields(w.shields, w.holder, tests, count, size, w.holder, y)
-  -- En combat, le client ne dit plus qui le tank cible (réponse vide), mais
-  -- il dit (en secret) qui a l'aggro : second bouclier superposé, affiché
-  -- sur les monstres dont le tank a l'aggro.
+  -- Option /tank aggro : second bouclier superposé sur les monstres dont le
+  -- tank a l'aggro (le jeu le dit toujours, en secret, même en combat).
   local aggro = {}
-  if type(UnitDetailedThreatSituation) == "function" then
+  if db and db.aggro and type(UnitDetailedThreatSituation) == "function" then
     for i = 1, count do aggro[i] = RawB(UnitDetailedThreatSituation, tanks[i].unit, unit) end
   end
   ApplyShields(w.aggroShields, w.holder, aggro, count, size, w.holder, y)
@@ -446,7 +463,7 @@ local function UpdateTargetFrame()
     -- Inutile d'afficher « ta cible est ta cible » quand on est le tank.
     if active and t ~= "player" and not Is(UnitIsUnit, t, "player") then
       tests[i] = RawB(UnitIsUnit, "target", TargetToken(t))
-      if type(UnitDetailedThreatSituation) == "function" then
+      if db.aggro and type(UnitDetailedThreatSituation) == "function" then
         aggro[i] = RawB(UnitDetailedThreatSituation, t, "target")
       end
     end
@@ -475,6 +492,32 @@ local function DebugTarget()
       .. ShowValue(Raw(UnitIsUnit, "target", TargetToken(t.unit)))
       .. " | ça tape le tank = " .. ShowValue(Raw(UnitIsUnit, "targettarget", t.unit))
       .. " | aggro du tank = " .. ShowValue(Raw(UnitDetailedThreatSituation, t.unit, "target")))
+    local tt = TargetToken(t.unit)
+    local tp = GetPlate(tt)
+    local myPlate = GetPlate("target")
+    local where = "non"
+    if tp then
+      where = "oui"
+      if myPlate then
+        if tp == myPlate then where = "oui (= ta cible)" else where = "oui (un autre monstre)" end
+      end
+    end
+    local guid = Raw(UnitGUID, tt)
+    local guidState
+    if IsSecret(guid) then
+      guidState = "secret"
+    elseif type(guid) == "nil" then
+      guidState = "vide"
+    else
+      guidState = "lisible"
+    end
+    local plateCmp = "?"
+    for u in pairs(activePlates) do
+      if Is(UnitIsUnit, u, "target") then plateCmp = ShowValue(Raw(UnitIsUnit, u, tt)) end
+    end
+    Print("debug — tank " .. i .. " : barre de nom de sa cible donnée par le jeu = " .. where
+      .. " | GUID de sa cible = " .. guidState
+      .. " | comparaison barre de nom = " .. plateCmp)
   end
   -- État réel des icônes sur la barre de nom de la cible.
   local w
@@ -519,6 +562,10 @@ local function RefreshAll()
   else
     WarnOnce("tanks", "erreur pendant la détection du tank : " .. tostring(found))
     tanks = {}
+  end
+  tankPlates = {}
+  for i = 1, math.min(#tanks, MAX_TANKS) do
+    tankPlates[i] = GetPlate(TargetToken(tanks[i].unit))
   end
   for unit in pairs(activePlates) do SafeUpdatePlate(unit) end
   local ok2, err = pcall(UpdateTargetFrame)
@@ -637,6 +684,7 @@ local function ShowHelp()
   Print("  /tank moi | /tank cible : toi-même, ou le joueur que tu cibles")
   Print("  /tank effacer : oublie le choix manuel")
   Print("  /tank pastille | /tank cadre : active/désactive la pastille rouge ou l'icône du cadre de cible")
+  Print("  /tank aggro : bouclier aussi sur tous les monstres dont le tank a l'aggro")
   Print("  /tank taille N | /tank hauteur N : taille et position du bouclier")
   Print("  /tank debug : ce que l'add-on voit pour ta cible (à faire en combat)")
   Print("  /tank test : force un bouclier et un carré bleu sur ta cible, pour vérifier l'affichage")
@@ -687,6 +735,9 @@ local function HandleSlash(msg)
   elseif lcmd == "cadre" then
     db.targetFrame = not db.targetFrame
     Print("icône du cadre de cible : " .. (db.targetFrame and "activée" or "désactivée"))
+  elseif lcmd == "aggro" then
+    db.aggro = not db.aggro
+    Print("bouclier sur les monstres dont le tank a l'aggro : " .. (db.aggro and "activé" or "désactivé"))
   elseif lcmd == "taille" then
     local n = tonumber(rest)
     if n and n >= 8 and n <= 64 then

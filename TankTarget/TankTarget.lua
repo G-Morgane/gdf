@@ -38,6 +38,7 @@ local tanks = {}        -- { {unit=, name=, source=}, ... }
 local activePlates = {} -- unité de nameplate -> true
 local widgets = {}      -- cadre de nameplate -> { holder, icon, label, dot }
 local warned = {}
+local testMode = false  -- /tank test
 
 ---------------------------------------------------------------------------
 -- Utilitaires
@@ -341,19 +342,36 @@ local function UpdatePlate(unit)
   if not plate then return end
   local w = GetWidgets(plate)
 
-  if #tanks == 0 or not Is(UnitExists, unit) or not Is(UnitCanAttack, "player", unit) then
+  if (#tanks == 0 and not testMode) or not Is(UnitExists, unit) or not Is(UnitCanAttack, "player", unit) then
     HideWidgets(w)
     return
   end
   w.holder:Show()
+
+  local size = db and db.size or DEFAULTS.size
+  local y = db and db.offsetY or DEFAULTS.offsetY
+
+  -- /tank test : sur la barre de nom de TA cible, bouclier et pastille
+  -- BLEUE affichés sans condition, pour vérifier qu'ils sont visibles.
+  if testMode then
+    w.dot:SetVertexColor(0.2, 0.5, 1, 1)
+    if Is(UnitIsUnit, unit, "target") then
+      ApplyShields(w.shields, w.holder, { true }, 1, size, w.holder, y)
+      w.dot:ClearAllPoints()
+      w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + size + 2)
+      ApplyDot(w, { { true, 1, 0 } })
+    else
+      HideWidgets(w)
+    end
+    return
+  end
+  w.dot:SetVertexColor(1, 0.1, 0.1, 1)
 
   local count = math.min(#tanks, MAX_TANKS)
   local tests = {}
   for i = 1, count do
     tests[i] = RawB(UnitIsUnit, unit, TargetToken(tanks[i].unit))
   end
-  local size = db and db.size or DEFAULTS.size
-  local y = db and db.offsetY or DEFAULTS.offsetY
   ApplyShields(w.shields, w.holder, tests, count, size, w.holder, y)
   w.dot:ClearAllPoints()
   w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + size + 2)
@@ -441,6 +459,31 @@ local function DebugTarget()
       .. " | ça tape le tank = " .. ShowValue(Raw(UnitIsUnit, "targettarget", t.unit))
       .. " | aggro du tank = " .. ShowValue(Raw(UnitDetailedThreatSituation, t.unit, "target")))
   end
+  -- État réel des icônes sur la barre de nom de la cible.
+  local w
+  for u in pairs(activePlates) do
+    if Is(UnitIsUnit, u, "target") then
+      local plate = GetPlate(u)
+      if plate then w = widgets[plate] end
+    end
+  end
+  if not w then
+    Print("debug — aucune barre de nom TankTarget trouvée pour ta cible.")
+    return
+  end
+  local s = w.shields[1]
+  local parts = { "debug — barre de nom : cadre visible = " .. tostring(w.holder:IsVisible()) }
+  if s then
+    parts[#parts + 1] = "bouclier montré = " .. tostring(s.icon:IsShown())
+      .. ", opacité = " .. ShowValue(Raw(s.icon.GetAlpha, s.icon))
+  else
+    parts[#parts + 1] = "pas de bouclier créé"
+  end
+  local chain = {}
+  for k, f in ipairs(w.chain) do chain[k] = ShowValue(Raw(f.GetAlpha, f)) end
+  parts[#parts + 1] = "pastille montrée = " .. tostring(w.dotRoot:IsShown())
+    .. ", maillons = " .. table.concat(chain, "/")
+  Print(table.concat(parts, " | "))
 end
 
 ---------------------------------------------------------------------------
@@ -574,6 +617,7 @@ local function ShowHelp()
   Print("  /tank pastille | /tank cadre : active/désactive la pastille rouge ou l'icône du cadre de cible")
   Print("  /tank taille N | /tank hauteur N : taille et position du bouclier")
   Print("  /tank debug : ce que l'add-on voit pour ta cible (à faire en combat)")
+  Print("  /tank test : force un bouclier et un carré bleu sur ta cible, pour vérifier l'affichage")
 end
 
 local function HandleSlash(msg)
@@ -588,6 +632,13 @@ local function HandleSlash(msg)
     Print("tape /tank aide pour la liste des commandes.")
   elseif lcmd == "aide" or lcmd == "help" or lcmd == "?" then
     ShowHelp()
+  elseif lcmd == "test" then
+    testMode = not testMode
+    if testMode then
+      Print("mode test ACTIVÉ : la barre de nom de ta cible ennemie doit montrer un bouclier et un carré BLEU. Toutes les autres icônes TankTarget sont masquées. Retape /tank test pour arrêter.")
+    else
+      Print("mode test désactivé.")
+    end
   elseif lcmd == "debug" then
     RefreshAll()
     DebugTarget()

@@ -35,6 +35,7 @@ Le choix manuel ne sert que si aucun rôle ni Main Tank n'est défini.
 | `/tank taille 22` | taille du bouclier (8 à 64) |
 | `/tank hauteur 4` | hauteur du bouclier au-dessus de la barre (-50 à 150) |
 | `/tank debug` | ce que l'add-on voit pour ta cible (à faire en combat, utile si ça ne marche pas) |
+| `/tank test` | force un bouclier et un carré bleu sur ta cible ennemie, pour vérifier l'affichage |
 | `/tank aide` | rappel des commandes |
 
 `/tanktarget` marche aussi.

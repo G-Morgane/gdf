@@ -1,7 +1,9 @@
 # TankTarget
 
 Petit add-on pour WoW Forever (client 1.60.1, `Interface: 16001`) : un **bouclier**
-s'affiche au-dessus de la barre de nom (nameplate) du monstre que le tank cible.
+s'affiche au-dessus de la barre de nom (nameplate) du monstre que le tank cible
+ou dont il a l'aggro (en combat, le jeu ne dit plus aux add-ons qui le tank cible,
+mais il dit toujours qui a l'aggro).
 Tout le groupe voit ainsi quel mob le tank tient.
 
 - Plusieurs tanks : chaque bouclier porte le numéro du tank (1, 2…).

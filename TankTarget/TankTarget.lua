@@ -303,7 +303,7 @@ local function GetWidgets(plate)
   dot:SetSize(8, 8)
   dot:SetPoint("BOTTOM", holder, "TOP", 0, 2)
 
-  w = { holder = holder, shields = {}, dotRoot = dotRoot, chain = {}, dot = dot }
+  w = { holder = holder, shields = {}, aggroShields = {}, dotRoot = dotRoot, chain = {}, dot = dot }
   widgets[plate] = w
   return w
 end
@@ -362,6 +362,7 @@ local function UpdatePlate(unit)
     w.dot:SetVertexColor(0.2, 0.5, 1, 1)
     if Is(UnitIsUnit, unit, "target") then
       ApplyShields(w.shields, w.holder, { true }, 1, size, w.holder, y)
+      ApplyShields(w.aggroShields, w.holder, {}, 0, size, w.holder, y)
       w.dot:ClearAllPoints()
       w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + size + 2)
       ApplyDot(w, { { true, 1, 0 } })
@@ -378,6 +379,14 @@ local function UpdatePlate(unit)
     tests[i] = RawB(UnitIsUnit, unit, TargetToken(tanks[i].unit))
   end
   ApplyShields(w.shields, w.holder, tests, count, size, w.holder, y)
+  -- En combat, le client ne dit plus qui le tank cible (réponse vide), mais
+  -- il dit (en secret) qui a l'aggro : second bouclier superposé, affiché
+  -- sur les monstres dont le tank a l'aggro.
+  local aggro = {}
+  if type(UnitDetailedThreatSituation) == "function" then
+    for i = 1, count do aggro[i] = RawB(UnitDetailedThreatSituation, tanks[i].unit, unit) end
+  end
+  ApplyShields(w.aggroShields, w.holder, aggro, count, size, w.holder, y)
   w.dot:ClearAllPoints()
   w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + size + 2)
 
@@ -413,6 +422,7 @@ end
 
 local targetHolder
 local targetShields = {}
+local targetAggroShields = {}
 
 local function EnsureTargetHolder()
   if targetHolder then return true end
@@ -429,18 +439,20 @@ end
 local function UpdateTargetFrame()
   if not EnsureTargetHolder() then return end
   local count = math.min(#tanks, MAX_TANKS)
-  local tests = {}
+  local tests, aggro = {}, {}
   local active = db and db.targetFrame and Is(UnitExists, "target") and Is(UnitCanAttack, "player", "target")
   for i = 1, count do
     local t = tanks[i].unit
     -- Inutile d'afficher « ta cible est ta cible » quand on est le tank.
     if active and t ~= "player" and not Is(UnitIsUnit, t, "player") then
       tests[i] = RawB(UnitIsUnit, "target", TargetToken(t))
-    else
-      tests[i] = nil
+      if type(UnitDetailedThreatSituation) == "function" then
+        aggro[i] = RawB(UnitDetailedThreatSituation, t, "target")
+      end
     end
   end
   ApplyShields(targetShields, targetHolder, tests, count, 20, targetHolder, 0)
+  ApplyShields(targetAggroShields, targetHolder, aggro, count, 20, targetHolder, 0)
 end
 
 -- /tank debug : ce que voit l'add-on pour ta cible actuelle.
@@ -483,6 +495,11 @@ local function DebugTarget()
       .. ", opacité = " .. ShowValue(Raw(s.frame.GetAlpha, s.frame))
   else
     parts[#parts + 1] = "pas de bouclier créé"
+  end
+  local a = w.aggroShields and w.aggroShields[1]
+  if a then
+    parts[#parts + 1] = "bouclier d'aggro montré = " .. tostring(a.frame:IsShown())
+      .. ", opacité = " .. ShowValue(Raw(a.frame.GetAlpha, a.frame))
   end
   local chain = {}
   for k, f in ipairs(w.chain) do chain[k] = ShowValue(Raw(f.GetAlpha, f)) end

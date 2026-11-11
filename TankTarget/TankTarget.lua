@@ -13,8 +13,8 @@
 -- Sécurité : on ne touche à rien de protégé. On ajoute seulement un petit
 -- cadre non sécurisé avec des textures sur les nameplates ennemies et sur
 -- le cadre de cible. Toutes les API incertaines sur WoW Forever passent par
--- pcall, et les valeurs « secrètes » (moteur récent) sont traitées comme
--- « inconnu » au lieu de faire planter l'add-on.
+-- pcall. En combat, le moteur récent rend certaines réponses « secrètes » :
+-- elles pilotent alors l'opacité des icônes via SetAlphaFromBoolean.
 --
 -- Lua 5.1 uniquement.
 
@@ -170,45 +170,98 @@ local function FindTanks()
 end
 
 ---------------------------------------------------------------------------
--- Analyse d'un monstre
+-- Valeurs secrètes
+---------------------------------------------------------------------------
+-- Sur le moteur récent de WoW Forever, en combat, des réponses comme
+-- UnitIsUnit("nameplate3", "party1target") peuvent être « secrètes » :
+-- l'add-on ne peut pas les lire, mais il peut les passer à
+-- SetAlphaFromBoolean, qui affiche ou masque l'élément tout seul.
+-- On pilote donc tout par l'opacité : SetVis gère les deux cas.
+
+local MAX_TANKS = 8
+
+-- Appel protégé qui garde la valeur même si elle est secrète.
+local function Raw(fn, ...)
+  if type(fn) ~= "function" then return nil end
+  local ok, v = pcall(fn, ...)
+  if not ok then return nil end
+  return v
+end
+
+-- Pareil, mais nil devient false. type() est sans danger sur une valeur
+-- secrète, contrairement à « v or false » qui ferait un test dessus.
+local function RawB(fn, ...)
+  local v = Raw(fn, ...)
+  if type(v) == "nil" then return false end
+  return v
+end
+
+-- Opacité aTrue si v est vrai, aFalse sinon. Si v est secret et que le
+-- client ne sait pas le traiter, l'élément est masqué (dans le doute, on
+-- n'affiche rien).
+local function SetVis(region, v, aTrue, aFalse)
+  if IsSecret(v) then
+    local ok = false
+    if region.SetAlphaFromBoolean then
+      ok = pcall(region.SetAlphaFromBoolean, region, v, aTrue, aFalse)
+    end
+    if not ok then region:SetAlpha(0) end
+  elseif v then
+    region:SetAlpha(aTrue)
+  else
+    region:SetAlpha(aFalse)
+  end
+end
+
+local function ShowValue(v)
+  if IsSecret(v) then return "secret" end
+  return tostring(v)
+end
+
+---------------------------------------------------------------------------
+-- Jeux d'icônes (un bouclier numéroté par tank, superposés)
 ---------------------------------------------------------------------------
 
--- Renvoie la liste des numéros de tanks qui ciblent cette unité.
-local function TanksTargeting(unit)
-  local idx = {}
-  for i, t in ipairs(tanks) do
-    if Is(UnitIsUnit, unit, TargetToken(t.unit)) then idx[#idx + 1] = i end
-  end
-  return idx
+local function NewShield(parent)
+  local icon = parent:CreateTexture(nil, "OVERLAY")
+  icon:SetTexture(ICON)
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  icon:Hide()
+  local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  label:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
+  label:SetTextColor(1, 1, 1)
+  label:Hide()
+  return { icon = icon, label = label }
 end
 
-local function IsTankUnit(unit)
-  for _, t in ipairs(tanks) do
-    if Is(UnitIsUnit, unit, t.unit) then return true end
+-- shields : liste de boucliers ; tests[i] = valeur « le tank i cible ça »
+-- (nil pour ne pas afficher le bouclier i).
+local function ApplyShields(shields, parent, tests, count, size, anchor, y)
+  for i = 1, count do
+    if not shields[i] then shields[i] = NewShield(parent) end
+    local s = shields[i]
+    s.icon:SetSize(size, size)
+    s.icon:ClearAllPoints()
+    s.icon:SetPoint("BOTTOM", anchor, "TOP", 0, y)
+    if type(tests[i]) == "nil" then
+      s.icon:Hide()
+      s.label:Hide()
+    else
+      s.icon:Show()
+      SetVis(s.icon, tests[i], 1, 0)
+      if count > 1 then
+        s.label:SetText(tostring(i))
+        s.label:Show()
+        SetVis(s.label, tests[i], 1, 0)
+      else
+        s.label:Hide()
+      end
+    end
   end
-  return false
-end
-
-local function TankHasAggro(mob)
-  if type(UnitDetailedThreatSituation) ~= "function" then return false end
-  for _, t in ipairs(tanks) do
-    if Is(UnitDetailedThreatSituation, t.unit, mob) then return true end
+  for i = count + 1, #shields do
+    shields[i].icon:Hide()
+    shields[i].label:Hide()
   end
-  return false
-end
-
--- Vrai si le monstre est en combat et tape un membre du groupe qui n'est
--- pas un tank (et qu'aucun tank n'a l'aggro d'après la menace).
-local function IsLoose(mob)
-  if #tanks == 0 then return false end
-  if not Is(UnitAffectingCombat, mob) then return false end
-  local mt = mob .. "target"
-  if not Is(UnitExists, mt) then return false end
-  local inGroup = Is(UnitIsUnit, mt, "player") or Is(UnitInParty, mt) or Is(UnitInRaid, mt)
-  if not inGroup then return false end
-  if IsTankUnit(mt) then return false end
-  if TankHasAggro(mob) then return false end
-  return true
 end
 
 ---------------------------------------------------------------------------
@@ -233,43 +286,54 @@ local function GetWidgets(plate)
   pcall(holder.SetFrameStrata, holder, "MEDIUM")
   pcall(holder.SetFrameLevel, holder, (plate:GetFrameLevel() or 0) + 50)
 
-  local icon = holder:CreateTexture(nil, "OVERLAY")
-  icon:SetTexture(ICON)
-  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  icon:Hide()
-
-  local label = holder:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  label:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
-  label:SetTextColor(1, 1, 1)
-  label:Hide()
-
-  local dot = holder:CreateTexture(nil, "OVERLAY")
+  -- Pastille : une chaîne de cadres imbriqués. L'opacité se multiplie de
+  -- parent en enfant, donc la pastille n'est visible que si TOUTES les
+  -- conditions (une par maillon) sont remplies, même secrètes.
+  local dotRoot = CreateFrame("Frame", nil, holder)
+  dotRoot:SetAllPoints(holder)
+  local dot = dotRoot:CreateTexture(nil, "OVERLAY")
   dot:SetTexture(WHITE)
   dot:SetVertexColor(1, 0.1, 0.1, 1)
   dot:SetSize(8, 8)
   dot:SetPoint("BOTTOM", holder, "TOP", 0, 2)
-  dot:Hide()
 
-  w = { holder = holder, icon = icon, label = label, dot = dot }
+  w = { holder = holder, shields = {}, dotRoot = dotRoot, chain = {}, dot = dot }
   widgets[plate] = w
   return w
 end
 
 local function HideWidgets(w)
   if not w then return end
-  w.icon:Hide()
-  w.label:Hide()
-  w.dot:Hide()
+  w.holder:Hide()
 end
 
-local function LayoutWidgets(w)
-  local size = db and db.size or DEFAULTS.size
-  local y = db and db.offsetY or DEFAULTS.offsetY
-  w.icon:SetSize(size, size)
-  w.icon:ClearAllPoints()
-  w.icon:SetPoint("BOTTOM", w.holder, "TOP", 0, y)
-  w.dot:ClearAllPoints()
-  w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + 2)
+-- Renvoie le maillon n de la chaîne (le crée au besoin) et y range la pastille.
+local function ChainLink(w, n)
+  for k = #w.chain + 1, n do
+    local parent = w.chain[k - 1] or w.dotRoot
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetAllPoints(w.holder)
+    w.chain[k] = f
+  end
+  return w.chain[n]
+end
+
+-- conds = { {valeur, alphaSiVrai, alphaSiFaux}, ... }
+local function ApplyDot(w, conds)
+  local n = #conds
+  if n == 0 then
+    w.dotRoot:Hide()
+    return
+  end
+  w.dotRoot:Show()
+  for k = 1, n do
+    local c = conds[k]
+    SetVis(ChainLink(w, k), c[1], c[2], c[3])
+  end
+  for k = n + 1, #w.chain do w.chain[k]:SetAlpha(1) end
+  local deepest = w.chain[#w.chain]
+  if w.dot:GetParent() ~= deepest then w.dot:SetParent(deepest) end
+  w.dot:Show()
 end
 
 local function UpdatePlate(unit)
@@ -277,31 +341,40 @@ local function UpdatePlate(unit)
   if not plate then return end
   local w = GetWidgets(plate)
 
-  if not Is(UnitExists, unit) or not Is(UnitCanAttack, "player", unit) then
+  if #tanks == 0 or not Is(UnitExists, unit) or not Is(UnitCanAttack, "player", unit) then
     HideWidgets(w)
     return
   end
+  w.holder:Show()
 
-  LayoutWidgets(w)
-  local idx = TanksTargeting(unit)
-  if #idx > 0 then
-    w.icon:Show()
-    w.dot:Hide()
-    if #tanks > 1 then
-      w.label:SetText(table.concat(idx, ","))
-      w.label:Show()
-    else
-      w.label:Hide()
-    end
-  else
-    w.icon:Hide()
-    w.label:Hide()
-    if db and db.dot and IsLoose(unit) then
-      w.dot:Show()
-    else
-      w.dot:Hide()
+  local count = math.min(#tanks, MAX_TANKS)
+  local tests = {}
+  for i = 1, count do
+    tests[i] = RawB(UnitIsUnit, unit, TargetToken(tanks[i].unit))
+  end
+  local size = db and db.size or DEFAULTS.size
+  local y = db and db.offsetY or DEFAULTS.offsetY
+  ApplyShields(w.shields, w.holder, tests, count, size, w.holder, y)
+  w.dot:ClearAllPoints()
+  w.dot:SetPoint("BOTTOM", w.holder, "TOP", 0, y + size + 2)
+
+  -- Pastille : en combat, cible amicale, et cette cible n'est aucun tank,
+  -- et aucun tank n'a l'aggro d'après la menace.
+  local conds = {}
+  if db and db.dot then
+    local mt = unit .. "target"
+    conds[#conds + 1] = { RawB(UnitAffectingCombat, unit), 1, 0 }
+    conds[#conds + 1] = { RawB(UnitExists, mt), 1, 0 }
+    conds[#conds + 1] = { RawB(UnitIsFriend, "player", mt), 1, 0 }
+    for i = 1, count do
+      local t = tanks[i].unit
+      conds[#conds + 1] = { RawB(UnitIsUnit, mt, t), 0, 1 }
+      if type(UnitDetailedThreatSituation) == "function" then
+        conds[#conds + 1] = { RawB(UnitDetailedThreatSituation, t, unit), 0, 1 }
+      end
     end
   end
+  ApplyDot(w, conds)
 end
 
 local function SafeUpdatePlate(unit)
@@ -315,55 +388,58 @@ end
 -- Cadre de cible
 ---------------------------------------------------------------------------
 
-local targetIcon, targetLabel
+local targetHolder
+local targetShields = {}
 
-local function EnsureTargetIcon()
-  if targetIcon then return true end
+local function EnsureTargetHolder()
+  if targetHolder then return true end
   local parent = _G.TargetFrame
   if not parent then return false end
-  local holder = CreateFrame("Frame", nil, parent)
-  holder:SetSize(1, 1)
-  pcall(holder.SetFrameLevel, holder, (parent:GetFrameLevel() or 0) + 10)
+  targetHolder = CreateFrame("Frame", nil, parent)
+  targetHolder:SetSize(1, 1)
+  pcall(targetHolder.SetFrameLevel, targetHolder, (parent:GetFrameLevel() or 0) + 10)
   local anchor = _G.TargetFramePortrait or parent
-  holder:SetPoint("BOTTOM", anchor, "TOP", 0, -4)
-  targetIcon = holder:CreateTexture(nil, "OVERLAY")
-  targetIcon:SetTexture(ICON)
-  targetIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  targetIcon:SetSize(20, 20)
-  targetIcon:SetPoint("BOTTOM", holder, "TOP", 0, 0)
-  targetIcon:Hide()
-  targetLabel = holder:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  targetLabel:SetPoint("BOTTOMRIGHT", targetIcon, "BOTTOMRIGHT", 2, -2)
-  targetLabel:SetTextColor(1, 1, 1)
-  targetLabel:Hide()
+  targetHolder:SetPoint("BOTTOM", anchor, "TOP", 0, -4)
   return true
 end
 
 local function UpdateTargetFrame()
-  if not EnsureTargetIcon() then return end
-  local show = false
-  local idx = {}
-  if db and db.targetFrame and Is(UnitExists, "target") and Is(UnitCanAttack, "player", "target") then
-    for i, t in ipairs(tanks) do
-      -- Inutile d'afficher « ta cible est ta cible » quand on est le tank.
-      if t.unit ~= "player" and not Is(UnitIsUnit, t.unit, "player")
-        and Is(UnitIsUnit, "target", TargetToken(t.unit)) then
-        idx[#idx + 1] = i
-      end
-    end
-    show = #idx > 0
-  end
-  if show then
-    targetIcon:Show()
-    if #tanks > 1 then
-      targetLabel:SetText(table.concat(idx, ","))
-      targetLabel:Show()
+  if not EnsureTargetHolder() then return end
+  local count = math.min(#tanks, MAX_TANKS)
+  local tests = {}
+  local active = db and db.targetFrame and Is(UnitExists, "target") and Is(UnitCanAttack, "player", "target")
+  for i = 1, count do
+    local t = tanks[i].unit
+    -- Inutile d'afficher « ta cible est ta cible » quand on est le tank.
+    if active and t ~= "player" and not Is(UnitIsUnit, t, "player") then
+      tests[i] = RawB(UnitIsUnit, "target", TargetToken(t))
     else
-      targetLabel:Hide()
+      tests[i] = nil
     end
-  else
-    targetIcon:Hide()
-    targetLabel:Hide()
+  end
+  ApplyShields(targetShields, targetHolder, tests, count, 20, targetHolder, 0)
+end
+
+-- /tank debug : ce que voit l'add-on pour ta cible actuelle.
+local function DebugTarget()
+  Print("debug — SetAlphaFromBoolean : " .. tostring(UIParent.SetAlphaFromBoolean ~= nil)
+    .. " | issecretvalue : " .. tostring(type(issecretvalue) == "function")
+    .. " | C_NamePlate : " .. tostring(C_NamePlate ~= nil))
+  if #tanks == 0 then
+    Print("debug — aucun tank détecté.")
+  end
+  if not Is(UnitExists, "target") then
+    Print("debug — pas de cible : cible un monstre (idéalement en combat) puis refais /tank debug.")
+    return
+  end
+  Print("debug — cible en combat : " .. ShowValue(Raw(UnitAffectingCombat, "target"))
+    .. " | sa cible existe : " .. ShowValue(Raw(UnitExists, "targettarget"))
+    .. " | sa cible est amicale : " .. ShowValue(Raw(UnitIsFriend, "player", "targettarget")))
+  for i, t in ipairs(tanks) do
+    Print("debug — tank " .. i .. " " .. t.name .. " (" .. t.unit .. ") : le tank cible ça = "
+      .. ShowValue(Raw(UnitIsUnit, "target", TargetToken(t.unit)))
+      .. " | ça tape le tank = " .. ShowValue(Raw(UnitIsUnit, "targettarget", t.unit))
+      .. " | aggro du tank = " .. ShowValue(Raw(UnitDetailedThreatSituation, t.unit, "target")))
   end
 end
 
@@ -497,6 +573,7 @@ local function ShowHelp()
   Print("  /tank effacer : oublie le choix manuel")
   Print("  /tank pastille | /tank cadre : active/désactive la pastille rouge ou l'icône du cadre de cible")
   Print("  /tank taille N | /tank hauteur N : taille et position du bouclier")
+  Print("  /tank debug : ce que l'add-on voit pour ta cible (à faire en combat)")
 end
 
 local function HandleSlash(msg)
@@ -511,6 +588,9 @@ local function HandleSlash(msg)
     Print("tape /tank aide pour la liste des commandes.")
   elseif lcmd == "aide" or lcmd == "help" or lcmd == "?" then
     ShowHelp()
+  elseif lcmd == "debug" then
+    RefreshAll()
+    DebugTarget()
   elseif lcmd == "effacer" or lcmd == "off" or lcmd == "reset" then
     db.manual = {}
     Print("choix manuel effacé.")

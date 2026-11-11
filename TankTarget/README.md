@@ -34,6 +34,7 @@ Le choix manuel ne sert que si aucun rôle ni Main Tank n'est défini.
 | `/tank cadre` | active / désactive le bouclier sur le cadre de cible |
 | `/tank taille 22` | taille du bouclier (8 à 64) |
 | `/tank hauteur 4` | hauteur du bouclier au-dessus de la barre (-50 à 150) |
+| `/tank debug` | ce que l'add-on voit pour ta cible (à faire en combat, utile si ça ne marche pas) |
 | `/tank aide` | rappel des commandes |
 
 `/tanktarget` marche aussi.

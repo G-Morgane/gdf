@@ -2,7 +2,7 @@
 ## Title: TankTarget
 ## Notes: Affiche un bouclier au-dessus de la barre de nom du monstre ciblé par le tank du groupe. Commande : /tank
 ## Author: Morgane
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: TankTargetDB
 
 TankTarget.lua
